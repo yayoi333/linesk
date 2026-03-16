@@ -143,6 +143,11 @@ export default function App() {
   // Toast State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{id: string, index: number} | null>(null);
+
+  // API Key State
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [savedApiKey, setSavedApiKey] = useState<string | null>(null);
   const handleDeleteStamp = () => { if (!deleteTarget) return; setStamps(prev => prev.filter(s => s.id !== deleteTarget.id)); if (mainConfig?.id === deleteTarget.id) setMainConfig(null); if (tabConfig?.id === deleteTarget.id) setTabConfig(null); setDeleteTarget(null); };
 
   // Ref to skip auto-processing during restore
@@ -155,6 +160,15 @@ export default function App() {
 
   const stampsRef = useRef(stamps);
   useEffect(() => { stampsRef.current = stamps; }, [stamps]);
+
+  // --- Load API Key on Mount ---
+  useEffect(() => {
+    const key = localStorage.getItem('gemini_api_key');
+    if (key) {
+      setSavedApiKey(key);
+      setApiKeyInput(key);
+    }
+  }, []);
 
   // --- Restore Check on Mount ---
   useEffect(() => {
@@ -344,6 +358,23 @@ export default function App() {
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  const handleSaveApiKey = () => {
+    const trimmed = apiKeyInput.trim();
+    if (trimmed) {
+      localStorage.setItem('gemini_api_key', trimmed);
+      setSavedApiKey(trimmed);
+      showToast('APIキーを保存しました');
+    }
+    setShowApiKeyModal(false);
+  };
+
+  const handleRemoveApiKey = () => {
+    localStorage.removeItem('gemini_api_key');
+    setSavedApiKey(null);
+    setApiKeyInput('');
+    showToast('APIキーを削除しました');
   };
 
   // --- Auto Save ---
@@ -1054,6 +1085,18 @@ export default function App() {
                 <div className="flex items-center gap-2">
                     <div className="bg-primary-500 p-2 rounded-lg text-white"><Grid size={24} /></div>
                     <h1 className="text-xl font-bold text-gray-800">スタンプ切り出しくん</h1>
+                    <button
+                        onClick={() => setShowApiKeyModal(true)}
+                        className={`ml-auto flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full border transition ${
+                            savedApiKey
+                                ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                                : 'bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100'
+                        }`}
+                        title="Gemini APIキー設定"
+                    >
+                        <Settings size={14} />
+                        <span className="hidden sm:inline">{savedApiKey ? 'API設定済' : 'API設定'}</span>
+                    </button>
                 </div>
                 {step === AppStep.EDIT && (
                     <div className="flex flex-wrap items-center gap-x-6 gap-y-3 animate-fade-in border-t border-primary-50 pt-2">
@@ -1358,6 +1401,66 @@ export default function App() {
             </div>
         </div>
       )}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Settings size={20} className="text-primary-500" />
+                Gemini APIキー設定
+              </h3>
+              <button onClick={() => setShowApiKeyModal(false)} className="p-1 hover:bg-gray-100 rounded-full"><XIcon size={20} /></button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-xs text-blue-700">
+                <p className="font-bold mb-1">AI翻訳機能を使うにはGemini APIキーが必要です</p>
+                <p>APIキーはブラウザに保存され、サーバーには送信されません。</p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-bold text-gray-600 mb-1">APIキー</label>
+                <input
+                  type="password"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="AIza..."
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                />
+              </div>
+              
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-xs text-gray-600">
+                <p className="font-bold mb-1">APIキーの取得方法:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline hover:text-primary-700">Google AI Studio</a> にアクセス</li>
+                  <li>「APIキーを作成」をクリック</li>
+                  <li>作成されたキーをコピーして上に貼り付け</li>
+                </ol>
+                <p className="mt-2 text-gray-400">※ Gemini APIは無料枠があります。翻訳程度なら無料で使えます。</p>
+              </div>
+              
+              <div className="flex gap-3">
+                {savedApiKey && (
+                  <button
+                    onClick={handleRemoveApiKey}
+                    className="flex-1 border border-red-300 text-red-600 hover:bg-red-50 font-bold py-2.5 rounded-xl transition text-sm"
+                  >
+                    キーを削除
+                  </button>
+                )}
+                <button
+                  onClick={handleSaveApiKey}
+                  disabled={!apiKeyInput.trim()}
+                  className="flex-1 bg-primary-600 hover:bg-primary-700 text-white font-bold py-2.5 rounded-xl shadow transition text-sm disabled:opacity-50"
+                >
+                  保存する
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toastMessage && (<div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] bg-gray-800 text-white text-sm px-4 py-2 rounded-full shadow-lg pointer-events-none whitespace-nowrap animate-[fadeIn_0.3s_ease-in-out]">{toastMessage}</div>)}
       <footer className="text-center py-4 text-xs text-gray-400"><p>Developed by yayoi 2026</p></footer>
     </div>
