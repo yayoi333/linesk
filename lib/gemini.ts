@@ -4,12 +4,15 @@ export async function translateMeta(
   jaName: string,
   jaDesc: string
 ): Promise<{ enName: string; enDesc: string }> {
-  // Try to get API key from process.env (Node/AI Studio) or import.meta.env (Vite)
-  // @ts-ignore
-  const apiKey = process.env.API_KEY || (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY);
+// 1. localStorage（ユーザー入力）→ 2. 環境変数（AI Studio/開発時）の順で探す
+    const userKey = typeof localStorage !== 'undefined' ? localStorage.getItem('gemini_api_key') : null;
+    // @ts-ignore
+    const envKey = process.env.API_KEY || (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY);
+    const apiKey = userKey || envKey;
   
-  if (!apiKey) {
-    throw new Error("APIキーが見つかりません。環境変数(API_KEY または VITE_GEMINI_API_KEY)を設定してください。");
+    if (!apiKey) {
+      throw new Error("Gemini APIキーが設定されていません。右上の設定からAPIキーを入力してください。");
+    }
   }
 
   const ai = new GoogleGenAI({ apiKey });
