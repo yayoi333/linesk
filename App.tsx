@@ -143,6 +143,8 @@ export default function App() {
   // Toast State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{id: string, index: number} | null>(null);
+  const [showUnifyScaleModal, setShowUnifyScaleModal] = useState(false);
+  const [unifyScaleTarget, setUnifyScaleTarget] = useState<number>(0);
 
   // API Key State
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -151,11 +153,15 @@ export default function App() {
   const handleDeleteStamp = () => { if (!deleteTarget) return; setStamps(prev => prev.filter(s => s.id !== deleteTarget.id)); if (mainConfig?.id === deleteTarget.id) setMainConfig(null); if (tabConfig?.id === deleteTarget.id) setTabConfig(null); setDeleteTarget(null); };
   const handleUnifyScale = () => {
     if (stamps.length === 0) return;
-    // 全スタンプの中で最大のscaleを求める
-    const maxScale = Math.max(...stamps.map(s => s.scale));
-    // 全スタンプのscaleを最大値に揃える
-    setStamps(prev => prev.map(s => ({ ...s, scale: maxScale })));
-    showToast(`全スタンプのサイズを揃えました (${Math.round(maxScale * 100)}%)`);
+    setUnifyScaleTarget(0);
+    setShowUnifyScaleModal(true);
+  };
+
+  const handleUnifyScaleConfirm = () => {
+    const targetScale = stamps[unifyScaleTarget].scale;
+    setStamps(prev => prev.map(s => ({ ...s, scale: targetScale })));
+    showToast(`No.${String(unifyScaleTarget + 1).padStart(2, '0')} のサイズ(${Math.round(targetScale * 100)}%)に揃えました`);
+    setShowUnifyScaleModal(false);
   };
   const handleCenterAll = () => {
     if (stamps.length === 0) return;
@@ -1414,6 +1420,30 @@ export default function App() {
                     <button onClick={handleDeleteStamp} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 rounded-xl shadow transition">削除する</button>
                 </div>
             </div>
+        </div>
+      )}
+      {showUnifyScaleModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xs w-full p-6 text-center">
+            <div className="text-4xl mb-3">📐</div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">サイズ揃え</h3>
+            <p className="text-sm text-gray-500 mb-4">基準にするスタンプを選んでください。<br/>全スタンプがそのサイズに揃います。</p>
+            <select
+              value={unifyScaleTarget}
+              onChange={(e) => setUnifyScaleTarget(Number(e.target.value))}
+              className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500 mb-4 bg-primary-50 text-sm"
+            >
+              {stamps.map((s, i) => (
+                <option key={s.id} value={i}>
+                  No.{String(i + 1).padStart(2, '0')} — {Math.round(s.scale * 100)}%{s.isExcluded ? ' (除外)' : ''}
+                </option>
+              ))}
+            </select>
+            <div className="flex gap-3">
+              <button onClick={() => setShowUnifyScaleModal(false)} className="flex-1 bg-white border border-gray-300 text-gray-600 font-bold py-2.5 rounded-xl shadow-sm transition hover:bg-gray-50">キャンセル</button>
+              <button onClick={handleUnifyScaleConfirm} className="flex-1 bg-primary-600 hover:bg-primary-700 text-white font-bold py-2.5 rounded-xl shadow transition">揃える</button>
+            </div>
+          </div>
         </div>
       )}
       {showApiKeyModal && (
