@@ -169,6 +169,8 @@ export const StampEditorModal: React.FC<Props> = ({
   const toleranceTimeoutRef = useRef<number | null>(null);
   // Edit canvas for eraser/restore operations to avoid creating new images constantly
   const editCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastBrushTimeRef = useRef<number>(0);
+  const pendingBrushRef = useRef<number | null>(null);
   
   // Cache for image layers to prevent flickering
   const imageLayerCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -743,7 +745,17 @@ export const StampEditorModal: React.FC<Props> = ({
       if (!inside && (imgX < -50 || imgX > stamp.width + 50 || imgY < -50 || imgY > stamp.height + 50)) return;
       const brushR = (eraserSize / scale) / 2; const ctx = await prepareEditCanvas(); if (!ctx) return;
       ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.arc(imgX, imgY, brushR, 0, Math.PI * 2); ctx.fill();
-      setWorkingDataUrl(editCanvasRef.current!.toDataURL());
+      const now = Date.now();
+      if (pendingBrushRef.current) cancelAnimationFrame(pendingBrushRef.current);
+      if (now - lastBrushTimeRef.current > 50) {
+          lastBrushTimeRef.current = now;
+          setWorkingDataUrl(editCanvasRef.current!.toDataURL());
+      } else {
+          pendingBrushRef.current = requestAnimationFrame(() => {
+              lastBrushTimeRef.current = Date.now();
+              if (editCanvasRef.current) setWorkingDataUrl(editCanvasRef.current.toDataURL());
+          });
+      }
   };
   const applyRestore = async (canvasX: number, canvasY: number) => {
       if (!originalImage) return;
@@ -751,7 +763,17 @@ export const StampEditorModal: React.FC<Props> = ({
       if (!inside && (imgX < -50 || imgX > stamp.width + 50 || imgY < -50 || imgY > stamp.height + 50)) return;
       const brushR = (eraserSize / scale) / 2; const ctx = await prepareEditCanvas(); if (!ctx) return;
       ctx.globalCompositeOperation = 'source-over'; ctx.save(); ctx.beginPath(); ctx.arc(imgX, imgY, brushR, 0, Math.PI * 2); ctx.clip(); ctx.drawImage(originalImage, 0, 0, stamp.width, stamp.height); ctx.restore();
-      setWorkingDataUrl(editCanvasRef.current!.toDataURL());
+      const now = Date.now();
+      if (pendingBrushRef.current) cancelAnimationFrame(pendingBrushRef.current);
+      if (now - lastBrushTimeRef.current > 50) {
+          lastBrushTimeRef.current = now;
+          setWorkingDataUrl(editCanvasRef.current!.toDataURL());
+      } else {
+          pendingBrushRef.current = requestAnimationFrame(() => {
+              lastBrushTimeRef.current = Date.now();
+              if (editCanvasRef.current) setWorkingDataUrl(editCanvasRef.current.toDataURL());
+          });
+      }
   };
   const applyMagicWand = async (canvasX: number, canvasY: number) => {
       const { imgX, imgY, inside } = getLocalImageCoords(canvasX, canvasY); if (!inside) return;
@@ -907,6 +929,11 @@ export const StampEditorModal: React.FC<Props> = ({
   };
 
   const handlePointerUp = () => {
+    if (pendingBrushRef.current) {
+        cancelAnimationFrame(pendingBrushRef.current);
+        pendingBrushRef.current = null;
+        if (editCanvasRef.current) setWorkingDataUrl(editCanvasRef.current.toDataURL());
+    }
     if (isDragging && mode === 'move') addToHistory({});
     if (isResizingImage) addToHistory({ scale });
     if (isResizingText && selectedTextId) handleTextChangeComplete();

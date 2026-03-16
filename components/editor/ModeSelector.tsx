@@ -90,7 +90,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
                     <div className="w-px h-6 bg-gray-300 mx-1"></div>
                     <input 
                     type="range" 
-                    min="5" 
+                    min="1" 
                     max="50" 
                     value={eraserSize} 
                     onChange={(e) => onEraserSizeChange(Number(e.target.value))} 

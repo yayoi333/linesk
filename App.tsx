@@ -2,7 +2,7 @@
 // X/Threads: @yayoi_threee
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Download, Loader2, Image as ImageIcon, Grid, Languages, Settings, ExternalLink, Plus, X as XIcon, Save, GripVertical, Smartphone, Copy, Check, Wand2, Crop, Sliders, ChevronDown, ChevronUp, Info, CheckCircle2, RotateCw, Layers, Minus, Plus as PlusIcon, Trash2, Type } from 'lucide-react';
+import { Upload, Download, Loader2, Image as ImageIcon, Grid, Languages, Settings, ExternalLink, Plus, X as XIcon, Save, GripVertical, Smartphone, Copy, Check, Wand2, Crop, Sliders, ChevronDown, ChevronUp, Info, CheckCircle2, RotateCw, Layers, Minus, Plus as PlusIcon, Trash2, Type, Move } from 'lucide-react';
 import { AppStep, Stamp, MetaData, ExportConfig, SourceImage, TARGET_WIDTH, TARGET_HEIGHT, MAIN_WIDTH, MAIN_HEIGHT, TAB_WIDTH, TAB_HEIGHT, TextObject, ImageLayerObject, DrawingStroke } from './types';
 import { processUploadedImage, reprocessStampWithTolerance } from './lib/imageProcessing';
 import { translateMeta } from './lib/gemini';
@@ -149,6 +149,19 @@ export default function App() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [savedApiKey, setSavedApiKey] = useState<string | null>(null);
   const handleDeleteStamp = () => { if (!deleteTarget) return; setStamps(prev => prev.filter(s => s.id !== deleteTarget.id)); if (mainConfig?.id === deleteTarget.id) setMainConfig(null); if (tabConfig?.id === deleteTarget.id) setTabConfig(null); setDeleteTarget(null); };
+  const handleUnifyScale = () => {
+    if (stamps.length === 0) return;
+    // 全スタンプの中で最大のscaleを求める
+    const maxScale = Math.max(...stamps.map(s => s.scale));
+    // 全スタンプのscaleを最大値に揃える
+    setStamps(prev => prev.map(s => ({ ...s, scale: maxScale })));
+    showToast(`全スタンプのサイズを揃えました (${Math.round(maxScale * 100)}%)`);
+  };
+  const handleCenterAll = () => {
+    if (stamps.length === 0) return;
+    setStamps(prev => prev.map(s => ({ ...s, offsetX: 0, offsetY: 0 })));
+    showToast('全スタンプを中央に揃えました');
+  };
 
   // Ref to skip auto-processing during restore
   const skipAutoProcessRef = useRef(false);
@@ -1247,10 +1260,12 @@ export default function App() {
                              </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => setShowTextSetModal(true)} className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg shadow text-xs sm:text-sm transition"><Type size={16} />テキスト一括追加</button>
-                        <button onClick={() => { const updatedStamps = stamps.map(s => ({ ...s, textObjects: (s.textObjects ?? []).filter(t => !t.id.startsWith('txt-set-')), })); setStamps(updatedStamps); showToast('一括削除しました'); }} className={`flex items-center gap-1 bg-white border border-gray-300 hover:bg-red-50 hover:border-red-300 text-gray-600 hover:text-red-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition ${stamps.some(s => s.textObjects?.some(t => t.id.startsWith('txt-set-'))) ? '' : 'opacity-30 pointer-events-none'}`}><Trash2 size={14} />一括テキスト削除</button>
-                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+	                        <button onClick={() => setShowTextSetModal(true)} className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg shadow text-xs sm:text-sm transition"><Type size={16} />テキスト一括追加</button>
+	                        <button onClick={() => { const updatedStamps = stamps.map(s => ({ ...s, textObjects: (s.textObjects ?? []).filter(t => !t.id.startsWith('txt-set-')), })); setStamps(updatedStamps); showToast('一括削除しました'); }} className={`flex items-center gap-1 bg-white border border-gray-300 hover:bg-red-50 hover:border-red-300 text-gray-600 hover:text-red-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition ${stamps.some(s => s.textObjects?.some(t => t.id.startsWith('txt-set-'))) ? '' : 'opacity-30 pointer-events-none'}`}><Trash2 size={14} />一括テキスト削除</button>
+	                        <button onClick={handleUnifyScale} className="flex items-center gap-1 bg-white border border-gray-300 hover:bg-primary-50 hover:border-primary-300 text-gray-600 hover:text-primary-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition"><Sliders size={14} />サイズ揃え</button>
+	                        <button onClick={handleCenterAll} className="flex items-center gap-1 bg-white border border-gray-300 hover:bg-primary-50 hover:border-primary-300 text-gray-600 hover:text-primary-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition"><Move size={14} />中央揃え</button>
+	                    </div>
                 </div>
               </div>
               <div className="flex justify-end"><p className="text-xs text-gray-400">※ドラッグ＆ドロップで並べ替えができます</p></div>
