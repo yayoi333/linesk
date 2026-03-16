@@ -79,4 +79,3 @@ ${text}`;
     console.error("translateMeta fatal error:", error);
     throw error;
   }
-}
