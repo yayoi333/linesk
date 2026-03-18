@@ -2,7 +2,7 @@
 // X/Threads: @yayoi_threee
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Download, Loader2, Image as ImageIcon, Grid, Languages, Settings, ExternalLink, Plus, X as XIcon, Save, GripVertical, Smartphone, Copy, Check, Wand2, Crop, Sliders, ChevronDown, ChevronUp, Info, CheckCircle2, RotateCw, Layers, Minus, Plus as PlusIcon, Trash2, Type, Move } from 'lucide-react';
+import { Upload, Download, Loader2, Image as ImageIcon, Grid, Languages, Settings, ExternalLink, Plus, X as XIcon, Save, GripVertical, Smartphone, Copy, Check, Wand2, Crop, Sliders, Move, ChevronDown, ChevronUp, Info, CheckCircle2, RotateCw, Layers, Minus, Plus as PlusIcon, Trash2, Type } from 'lucide-react';
 import { AppStep, Stamp, MetaData, ExportConfig, SourceImage, TARGET_WIDTH, TARGET_HEIGHT, MAIN_WIDTH, MAIN_HEIGHT, TAB_WIDTH, TAB_HEIGHT, TextObject, ImageLayerObject, DrawingStroke } from './types';
 import { processUploadedImage, reprocessStampWithTolerance } from './lib/imageProcessing';
 import { translateMeta } from './lib/gemini';
@@ -83,7 +83,52 @@ const StampPreview = React.memo<{ stamp: Stamp; previewBg: string }>(({ stamp, p
   );
 });
 
+async function sha256(message: string) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function checkAccess() {
+  // セッション中に認証済みならスキップ
+  if (sessionStorage.getItem('kiridashi_auth') === 'true') {
+    return true;
+  }
+
+  const hash = window.location.hash;
+  if (!hash) return false;
+
+  const params = new URLSearchParams(hash.substring(1));
+  const key = params.get('access');
+  if (!key) return false;
+
+  const keyHash = await sha256(key);
+  // ★ ここにSHA-256ハッシュ値をセット
+  const VALID_HASH = "1803660558f96fc39ee55b552e5584ad9e8ebe28782727da811713acbfcaa54b";
+
+  if (keyHash === VALID_HASH) {
+    sessionStorage.setItem('kiridashi_auth', 'true');
+    if (window.history.replaceState) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    return true;
+  }
+  return false;
+}
+
 export default function App() {
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const runCheck = async () => {
+      const result = await checkAccess();
+      setIsAuthorized(result);
+    };
+    runCheck();
+  }, []);
+
   const [step, setStep] = useState<AppStep>(AppStep.UPLOAD);
   const [isProcessing, setIsProcessing] = useState(false);
   const [stamps, setStamps] = useState<Stamp[]>([]);
@@ -99,6 +144,26 @@ export default function App() {
   const [meta, setMeta] = useState<MetaData>({
     stampNameJa: '', stampDescJa: '', stampNameEn: '', stampDescEn: ''
   });
+
+  if (isAuthorized === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-primary-50">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  if (isAuthorized === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-primary-50 p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
+          <div className="text-4xl mb-4">🔒</div>
+          <h1 className="text-xl font-bold text-gray-800 mb-2">アクセス権がありません</h1>
+          <p className="text-gray-600">このアプリを利用するには正しいURLが必要です。</p>
+        </div>
+      </div>
+    );
+  }
   const [isTranslating, setIsTranslating] = useState(false);
   const [descriptionHintOpen, setDescriptionHintOpen] = useState(false);
 
@@ -151,6 +216,7 @@ export default function App() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [savedApiKey, setSavedApiKey] = useState<string | null>(null);
   const handleDeleteStamp = () => { if (!deleteTarget) return; setStamps(prev => prev.filter(s => s.id !== deleteTarget.id)); if (mainConfig?.id === deleteTarget.id) setMainConfig(null); if (tabConfig?.id === deleteTarget.id) setTabConfig(null); setDeleteTarget(null); };
+
   const handleUnifyScale = () => {
     if (stamps.length === 0) return;
     setUnifyScaleTarget(0);
@@ -163,10 +229,12 @@ export default function App() {
     showToast(`No.${String(unifyScaleTarget + 1).padStart(2, '0')} のサイズ(${Math.round(targetScale * 100)}%)に揃えました`);
     setShowUnifyScaleModal(false);
   };
+
   const handleCenterAll = () => {
     if (stamps.length === 0) return;
+    // 全スタンプのオフセットを0にリセット
     setStamps(prev => prev.map(s => ({ ...s, offsetX: 0, offsetY: 0 })));
-    showToast('全スタンプを中央に揃えました');
+    setToastMessage("全スタンプを中央に揃えました");
   };
 
   // Ref to skip auto-processing during restore
@@ -1266,12 +1334,12 @@ export default function App() {
                              </div>
                         </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-	                        <button onClick={() => setShowTextSetModal(true)} className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg shadow text-xs sm:text-sm transition"><Type size={16} />テキスト一括追加</button>
-	                        <button onClick={() => { const updatedStamps = stamps.map(s => ({ ...s, textObjects: (s.textObjects ?? []).filter(t => !t.id.startsWith('txt-set-')), })); setStamps(updatedStamps); showToast('一括削除しました'); }} className={`flex items-center gap-1 bg-white border border-gray-300 hover:bg-red-50 hover:border-red-300 text-gray-600 hover:text-red-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition ${stamps.some(s => s.textObjects?.some(t => t.id.startsWith('txt-set-'))) ? '' : 'opacity-30 pointer-events-none'}`}><Trash2 size={14} />一括テキスト削除</button>
-	                        <button onClick={handleUnifyScale} className="flex items-center gap-1 bg-white border border-gray-300 hover:bg-primary-50 hover:border-primary-300 text-gray-600 hover:text-primary-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition"><Sliders size={14} />サイズ揃え</button>
-	                        <button onClick={handleCenterAll} className="flex items-center gap-1 bg-white border border-gray-300 hover:bg-primary-50 hover:border-primary-300 text-gray-600 hover:text-primary-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition"><Move size={14} />中央揃え</button>
-	                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button onClick={() => setShowTextSetModal(true)} className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg shadow text-xs sm:text-sm transition"><Type size={16} />テキスト一括追加</button>
+                        <button onClick={() => { const updatedStamps = stamps.map(s => ({ ...s, textObjects: (s.textObjects ?? []).filter(t => !t.id.startsWith('txt-set-')), })); setStamps(updatedStamps); showToast('一括削除しました'); }} className={`flex items-center gap-1 bg-white border border-gray-300 hover:bg-red-50 hover:border-red-300 text-gray-600 hover:text-red-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition ${stamps.some(s => s.textObjects?.some(t => t.id.startsWith('txt-set-'))) ? '' : 'opacity-30 pointer-events-none'}`}><Trash2 size={14} />一括テキスト削除</button>
+                        <button onClick={handleUnifyScale} className="flex items-center gap-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition"><Sliders size={14} />サイズ揃え</button>
+                        <button onClick={handleCenterAll} className="flex items-center gap-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-600 font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs sm:text-sm transition"><Move size={14} />中央揃え</button>
+                    </div>
                 </div>
               </div>
               <div className="flex justify-end"><p className="text-xs text-gray-400">※ドラッグ＆ドロップで並べ替えができます</p></div>
@@ -1422,6 +1490,7 @@ export default function App() {
             </div>
         </div>
       )}
+
       {showUnifyScaleModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-xs w-full p-6 text-center">
