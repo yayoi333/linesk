@@ -118,6 +118,96 @@ async function checkAccess() {
   return false;
 }
 
+const CopyButton = ({ text }: { text: string }) => {
+    const [copied, setCopied] = useState(false);
+    const handleCopy = () => {
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
+    };
+    return (
+        <button 
+          onClick={handleCopy} 
+          className="text-gray-400 hover:text-primary-600 p-1 rounded hover:bg-primary-50 transition"
+          title="コピー"
+          type="button"
+        >
+            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+        </button>
+    );
+};
+
+const CanvasPreview = ({ config, width, height, onClick, previewBg, stamps }: { config: ExportConfig | null, width: number, height: number, onClick?: () => void, previewBg: string, stamps: Stamp[] }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const s = config ? stamps.find(x => x.id === config.id) : null;
+    const layerCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+    useEffect(() => {
+        if (!canvasRef.current || !config || !s) return;
+        const ctx = canvasRef.current.getContext('2d');
+        if (!ctx) return;
+        if (config.imageLayers) {
+          config.imageLayers.forEach(layer => {
+              if (!layerCacheRef.current.has(layer.id)) {
+                  const lImg = new Image();
+                  lImg.onload = () => { layerCacheRef.current.set(layer.id, lImg); draw(); };
+                  lImg.src = layer.dataUrl;
+              }
+          });
+        }
+        const draw = () => {
+            const img = new Image();
+            img.onload = () => {
+                ctx.clearRect(0, 0, width, height);
+                if (previewBg === 'checker') {
+                    const size = 10;
+                    for (let y = 0; y < height; y += size) {
+                        for (let x = 0; x < width; x += size) {
+                            ctx.fillStyle = ((x / size + y / size) % 2 === 0) ? '#f3f4f6' : '#e5e7eb';
+                            ctx.fillRect(x, y, size, size);
+                        }
+                    }
+                } else {
+                    ctx.fillStyle = previewBg; ctx.fillRect(0, 0, width, height);
+                }
+                renderAllLayers(ctx, img, config, width, height, layerCacheRef.current);
+            };
+            img.src = config.customDataUrl || s.dataUrl;
+        };
+        draw();
+    }, [config, s, width, height, previewBg]);
+    if (!config || !s) {
+        return (
+           <div className="mt-2 border border-gray-200 rounded bg-gray-50 flex items-center justify-center text-xs text-gray-400" style={{ width: width / 2, height: height / 2 }}>
+               プレビュー
+           </div>
+        );
+    }
+    return (
+        <div className="mt-2 flex justify-center bg-gray-100 rounded border border-gray-200 p-2 cursor-pointer hover:ring-2 hover:ring-primary-300 transition relative group" onClick={onClick}>
+           <canvas ref={canvasRef} width={width} height={height} className="shadow-sm bg-white" style={{ maxWidth: '100%', height: 'auto', maxHeight: '120px' }} />
+           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 flex items-center justify-center transition-colors pointer-events-none">
+              <span className="opacity-0 group-hover:opacity-100 bg-white/90 text-xs px-2 py-1 rounded-full font-bold shadow-sm text-gray-700">編集</span>
+           </div>
+        </div>
+    );
+};
+
+const TextCounter = ({ current, min, max }: { current: number, min: number, max: number }) => {
+    const isError = current < min;
+    const isMax = current >= max;
+    return (
+        <div className="flex items-center gap-1 text-xs">
+            {isError && <span className="text-red-500 font-bold mr-1">あと{min - current}文字</span>}
+            {isMax && <span className="text-red-500 font-bold mr-1">上限です</span>}
+            <span className={isMax ? "text-red-500 font-bold" : (isError ? "text-orange-500" : "text-gray-400")}>
+                {current}/{max}
+            </span>
+        </div>
+    );
+};
+
 export default function App() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
 
@@ -145,25 +235,11 @@ export default function App() {
     stampNameJa: '', stampDescJa: '', stampNameEn: '', stampDescEn: ''
   });
 
-  if (isAuthorized === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-primary-50">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
-      </div>
-    );
-  }
-
-  if (isAuthorized === false) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-primary-50 p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
-          <div className="text-4xl mb-4">🔒</div>
-          <h1 className="text-xl font-bold text-gray-800 mb-2">アクセス権がありません</h1>
-          <p className="text-gray-600">このアプリを利用するには正しいURLが必要です。</p>
-        </div>
-      </div>
-    );
-  }
+  const validStampsCount = stamps.filter(s => !s.isExcluded).length;
+  const allowedCounts = [8, 16, 24, 32, 40];
+  const nextTarget = allowedCounts.find(c => c >= validStampsCount) || 40;
+  const isExactCount = allowedCounts.includes(validStampsCount);
+  const isOverLimit = validStampsCount > 40;
   const [isTranslating, setIsTranslating] = useState(false);
   const [descriptionHintOpen, setDescriptionHintOpen] = useState(false);
 
@@ -1068,101 +1144,25 @@ export default function App() {
     { value: '#f97316', label: 'オレンジ', color: 'bg-[#f97316]' },
   ];
 
-  const TextCounter = ({ current, min, max }: { current: number, min: number, max: number }) => {
-    const isError = current < min;
-    const isMax = current >= max;
+  if (isAuthorized === null) {
     return (
-        <div className="flex items-center gap-1 text-xs">
-            {isError && <span className="text-red-500 font-bold mr-1">あと{min - current}文字</span>}
-            {isMax && <span className="text-red-500 font-bold mr-1">上限です</span>}
-            <span className={isMax ? "text-red-500 font-bold" : (isError ? "text-orange-500" : "text-gray-400")}>
-                {current}/{max}
-            </span>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-primary-50">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
     );
-  };
+  }
 
-  const CopyButton = ({ text }: { text: string }) => {
-      const [copied, setCopied] = useState(false);
-      const handleCopy = () => {
-          if (!text) return;
-          navigator.clipboard.writeText(text).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
-          });
-      };
-      return (
-          <button 
-            onClick={handleCopy} 
-            className="text-gray-400 hover:text-primary-600 p-1 rounded hover:bg-primary-50 transition"
-            title="コピー"
-            type="button"
-          >
-              {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-          </button>
-      );
-  };
-
-  const CanvasPreview = ({ config, width, height, onClick, previewBg }: { config: ExportConfig | null, width: number, height: number, onClick?: () => void, previewBg: string }) => {
-      const canvasRef = useRef<HTMLCanvasElement>(null);
-      const s = config ? stamps.find(x => x.id === config.id) : null;
-      const layerCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
-      useEffect(() => {
-          if (!canvasRef.current || !config || !s) return;
-          const ctx = canvasRef.current.getContext('2d');
-          if (!ctx) return;
-          if (config.imageLayers) {
-            config.imageLayers.forEach(layer => {
-                if (!layerCacheRef.current.has(layer.id)) {
-                    const lImg = new Image();
-                    lImg.onload = () => { layerCacheRef.current.set(layer.id, lImg); draw(); };
-                    lImg.src = layer.dataUrl;
-                }
-            });
-          }
-          const draw = () => {
-              const img = new Image();
-              img.onload = () => {
-                  ctx.clearRect(0, 0, width, height);
-                  if (previewBg === 'checker') {
-                      const size = 10;
-                      for (let y = 0; y < height; y += size) {
-                          for (let x = 0; x < width; x += size) {
-                              ctx.fillStyle = ((x / size + y / size) % 2 === 0) ? '#f3f4f6' : '#e5e7eb';
-                              ctx.fillRect(x, y, size, size);
-                          }
-                      }
-                  } else {
-                      ctx.fillStyle = previewBg; ctx.fillRect(0, 0, width, height);
-                  }
-                  renderAllLayers(ctx, img, config, width, height, layerCacheRef.current);
-              };
-              img.src = config.customDataUrl || s.dataUrl;
-          };
-          draw();
-      }, [config, s, width, height, previewBg]);
-      if (!config || !s) {
-          return (
-             <div className="mt-2 border border-gray-200 rounded bg-gray-50 flex items-center justify-center text-xs text-gray-400" style={{ width: width / 2, height: height / 2 }}>
-                 プレビュー
-             </div>
-          );
-      }
-      return (
-          <div className="mt-2 flex justify-center bg-gray-100 rounded border border-gray-200 p-2 cursor-pointer hover:ring-2 hover:ring-primary-300 transition relative group" onClick={onClick}>
-             <canvas ref={canvasRef} width={width} height={height} className="shadow-sm bg-white" style={{ maxWidth: '100%', height: 'auto', maxHeight: '120px' }} />
-             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 flex items-center justify-center transition-colors pointer-events-none">
-                <span className="opacity-0 group-hover:opacity-100 bg-white/90 text-xs px-2 py-1 rounded-full font-bold shadow-sm text-gray-700">編集</span>
-             </div>
-          </div>
-      );
-  };
-
-  const validStampsCount = stamps.filter(s => !s.isExcluded).length;
-  const allowedCounts = [8, 16, 24, 32, 40];
-  const nextTarget = allowedCounts.find(c => c >= validStampsCount) || 40;
-  const isExactCount = allowedCounts.includes(validStampsCount);
-  const isOverLimit = validStampsCount > 40;
+  if (isAuthorized === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-primary-50 p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
+          <div className="text-4xl mb-4">🔒</div>
+          <h1 className="text-xl font-bold text-gray-800 mb-2">アクセス権がありません</h1>
+          <p className="text-gray-600">このアプリを利用するには正しいURLが必要です。</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen pb-20 flex flex-col">
@@ -1383,12 +1383,12 @@ export default function App() {
                         <div>
                             <div className="flex justify-between items-end mb-1"><label className="block text-sm font-medium text-gray-600">メイン画像 (240x240)</label><button onClick={() => downloadSpecialStamp(mainConfig, MAIN_WIDTH, MAIN_HEIGHT, 'main.png')} disabled={!mainConfig} className="text-gray-400 hover:text-primary-600 disabled:opacity-30" title="ダウンロード"><Download size={18} /></button></div>
                             <select className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500 mb-2 bg-primary-50" value={mainConfig?.id || ''} onChange={(e) => handleMainSelect(e.target.value)}>{stamps.map((s, i) => (<option key={s.id} value={s.id}>{s.isExcluded ? `(除外) スタンプ ${i + 1}` : `No.${i + 1} のスタンプ`}</option>))}</select>
-                            <CanvasPreview config={mainConfig} width={MAIN_WIDTH} height={MAIN_HEIGHT} previewBg={previewBg} onClick={() => { setEditingSpecialType('main'); const s = stamps.find(x => x.id === mainConfig?.id); if(s) setEditingStamp(s); }} />
+                            <CanvasPreview config={mainConfig} width={MAIN_WIDTH} height={MAIN_HEIGHT} previewBg={previewBg} stamps={stamps} onClick={() => { setEditingSpecialType('main'); const s = stamps.find(x => x.id === mainConfig?.id); if(s) setEditingStamp(s); }} />
                         </div>
                         <div>
                              <div className="flex justify-between items-end mb-1"><label className="block text-sm font-medium text-gray-600">タブ画像 (96x74)</label><button onClick={() => downloadSpecialStamp(tabConfig, TAB_WIDTH, TAB_HEIGHT, 'tab.png')} disabled={!tabConfig} className="text-gray-400 hover:text-primary-600 disabled:opacity-30" title="ダウンロード"><Download size={18} /></button></div>
                             <select className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500 mb-2 bg-primary-50" value={tabConfig?.id || ''} onChange={(e) => handleTabSelect(e.target.value)}>{stamps.map((s, i) => (<option key={s.id} value={s.id}>{s.isExcluded ? `(除外) スタンプ ${i + 1}` : `No.${i + 1} のスタンプ`}</option>))}</select>
-                            <CanvasPreview config={tabConfig} width={TAB_WIDTH} height={TAB_HEIGHT} previewBg={previewBg} onClick={() => { setEditingSpecialType('tab'); const s = stamps.find(x => x.id === tabConfig?.id); if(s) setEditingStamp(s); }} />
+                            <CanvasPreview config={tabConfig} width={TAB_WIDTH} height={TAB_HEIGHT} previewBg={previewBg} stamps={stamps} onClick={() => { setEditingSpecialType('tab'); const s = stamps.find(x => x.id === tabConfig?.id); if(s) setEditingStamp(s); }} />
                         </div>
                     </div>
                 </div>
