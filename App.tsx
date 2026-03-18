@@ -93,7 +93,7 @@ async function sha256(message: string) {
 
 async function checkAccess() {
   // セッション中に認証済みならスキップ
-  if (sessionStorage.getItem('kiridashi_auth') === 'true') {
+  if (localStorage.getItem('auth_verified') === 'true') {
     return true;
   }
 
@@ -109,10 +109,7 @@ async function checkAccess() {
   const VALID_HASH = "1803660558f96fc39ee55b552e5584ad9e8ebe28782727da811713acbfcaa54b";
 
   if (keyHash === VALID_HASH) {
-    sessionStorage.setItem('kiridashi_auth', 'true');
-    if (window.history.replaceState) {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    }
+    localStorage.setItem('auth_verified', 'true');
     return true;
   }
   return false;
