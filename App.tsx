@@ -307,7 +307,7 @@ export default function App() {
     if (stamps.length === 0) return;
     // 全スタンプのオフセットを0にリセット
     setStamps(prev => prev.map(s => ({ ...s, offsetX: 0, offsetY: 0 })));
-    setToastMessage("全スタンプを中央に揃えました");
+    showToast("全スタンプを中央に揃えました");
   };
 
   // Ref to skip auto-processing during restore
