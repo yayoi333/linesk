@@ -745,15 +745,17 @@ export const StampEditorModal: React.FC<Props> = ({
       if (!inside && (imgX < -50 || imgX > stamp.width + 50 || imgY < -50 || imgY > stamp.height + 50)) return;
       const brushR = (eraserSize / scale) / 2; const ctx = await prepareEditCanvas(); if (!ctx) return;
       ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.arc(imgX, imgY, brushR, 0, Math.PI * 2); ctx.fill();
+      
       const now = Date.now();
-      if (pendingBrushRef.current) cancelAnimationFrame(pendingBrushRef.current);
       if (now - lastBrushTimeRef.current > 50) {
-          lastBrushTimeRef.current = now;
           setWorkingDataUrl(editCanvasRef.current!.toDataURL());
+          lastBrushTimeRef.current = now;
       } else {
+          if (pendingBrushRef.current) cancelAnimationFrame(pendingBrushRef.current);
           pendingBrushRef.current = requestAnimationFrame(() => {
+              setWorkingDataUrl(editCanvasRef.current!.toDataURL());
               lastBrushTimeRef.current = Date.now();
-              if (editCanvasRef.current) setWorkingDataUrl(editCanvasRef.current.toDataURL());
+              pendingBrushRef.current = null;
           });
       }
   };
@@ -763,15 +765,17 @@ export const StampEditorModal: React.FC<Props> = ({
       if (!inside && (imgX < -50 || imgX > stamp.width + 50 || imgY < -50 || imgY > stamp.height + 50)) return;
       const brushR = (eraserSize / scale) / 2; const ctx = await prepareEditCanvas(); if (!ctx) return;
       ctx.globalCompositeOperation = 'source-over'; ctx.save(); ctx.beginPath(); ctx.arc(imgX, imgY, brushR, 0, Math.PI * 2); ctx.clip(); ctx.drawImage(originalImage, 0, 0, stamp.width, stamp.height); ctx.restore();
+      
       const now = Date.now();
-      if (pendingBrushRef.current) cancelAnimationFrame(pendingBrushRef.current);
       if (now - lastBrushTimeRef.current > 50) {
-          lastBrushTimeRef.current = now;
           setWorkingDataUrl(editCanvasRef.current!.toDataURL());
+          lastBrushTimeRef.current = now;
       } else {
+          if (pendingBrushRef.current) cancelAnimationFrame(pendingBrushRef.current);
           pendingBrushRef.current = requestAnimationFrame(() => {
+              setWorkingDataUrl(editCanvasRef.current!.toDataURL());
               lastBrushTimeRef.current = Date.now();
-              if (editCanvasRef.current) setWorkingDataUrl(editCanvasRef.current.toDataURL());
+              pendingBrushRef.current = null;
           });
       }
   };
@@ -931,8 +935,8 @@ export const StampEditorModal: React.FC<Props> = ({
   const handlePointerUp = () => {
     if (pendingBrushRef.current) {
         cancelAnimationFrame(pendingBrushRef.current);
+        setWorkingDataUrl(editCanvasRef.current!.toDataURL());
         pendingBrushRef.current = null;
-        if (editCanvasRef.current) setWorkingDataUrl(editCanvasRef.current.toDataURL());
     }
     if (isDragging && mode === 'move') addToHistory({});
     if (isResizingImage) addToHistory({ scale });
@@ -979,7 +983,7 @@ export const StampEditorModal: React.FC<Props> = ({
       <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full flex flex-col h-[95vh] relative">
         <div className="px-3 py-2 border-b flex items-center bg-primary-50 rounded-t-xl shrink-0 gap-2">
           <h3 className="font-bold text-gray-700 text-sm mr-auto">スタンプ編集 ({targetWidth}x{targetHeight})</h3>
-          <EditorToolbar viewZoom={viewZoom} onViewZoomChange={setViewZoom} historyIndex={historyIndex} historyLength={history.length} onUndo={undo} onRedo={redo} onReCrop={onReCrop} />
+          <EditorToolbar viewZoom={viewZoom} onViewZoomChange={setViewZoom} historyIndex={historyIndex} historyLength={history.length} onUndo={undo} onRedo={redo} />
           <div className="flex items-center gap-2">
                <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-gray-200">
                     <span className="hidden md:inline text-xs text-gray-400 font-bold px-1">背景色</span>
