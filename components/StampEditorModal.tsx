@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Stamp, TextObject, ImageLayerObject, DrawingStroke, TARGET_WIDTH, TARGET_HEIGHT } from '../types';
-import { Check, X, Sliders, Layers, Trash2, Move, Type, Image as ImageIcon, PenTool, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Check, X, Sliders, Layers, Trash2, Move, Type, Image as ImageIcon, PenTool, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eraser, Wand2 } from 'lucide-react';
 import { drawTextOnCanvas } from '../lib/zipService';
 import { reprocessStampWithTolerance } from '../lib/imageProcessing';
 import { saveMaterial, loadMaterials, deleteMaterial, MaterialItem } from '../lib/storage';
@@ -1179,7 +1179,7 @@ export const StampEditorModal: React.FC<Props> = ({
              {mode === 'wand' && originalImage && (
                 <div className="flex items-center gap-4 bg-yellow-50 p-3 rounded-lg border border-yellow-100">
                     <div className="flex items-center gap-2 text-yellow-700 font-bold text-sm min-w-[80px] shrink-0">
-                        <Sliders size={16} /> 背景除去
+                        <Wand2 size={16} /> 追加透過
                     </div>
                     <ControlSlider
                         label="" value={tolerance} min={1} max={100} step={1}
@@ -1194,6 +1194,42 @@ export const StampEditorModal: React.FC<Props> = ({
                             }, 300);
                         }}
                         showValue={true}
+                    />
+                </div>
+             )}
+
+             {mode === 'eraser' && (
+                <div className="flex items-center gap-4 bg-red-50 p-3 rounded-lg border border-red-100">
+                    <div className="flex items-center gap-2 text-red-700 font-bold text-sm min-w-[80px] shrink-0">
+                        <Eraser size={16} /> 消しゴム
+                    </div>
+                    <ControlSlider
+                        label=""
+                        value={eraserSize}
+                        min={1}
+                        max={100}
+                        step={1}
+                        onChange={setEraserSize}
+                        showValue={true}
+                        unit="px"
+                    />
+                </div>
+             )}
+
+             {mode === 'restore' && originalImage && (
+                <div className="flex items-center gap-4 bg-teal-50 p-3 rounded-lg border border-teal-100">
+                    <div className="flex items-center gap-2 text-teal-700 font-bold text-sm min-w-[80px] shrink-0">
+                        <PenTool size={16} /> 復活ペン
+                    </div>
+                    <ControlSlider
+                        label=""
+                        value={eraserSize}
+                        min={1}
+                        max={100}
+                        step={1}
+                        onChange={setEraserSize}
+                        showValue={true}
+                        unit="px"
                     />
                 </div>
              )}
@@ -1243,7 +1279,7 @@ export const StampEditorModal: React.FC<Props> = ({
         <div className="px-3 py-2 border-t bg-gray-50 rounded-b-xl shrink-0 flex flex-wrap items-center justify-center gap-2">
              <div className="flex flex-wrap gap-1 items-center justify-center">
                  <ModeSelector
-                    mode={mode} onModeChange={setMode} eraserSize={eraserSize} onEraserSizeChange={setEraserSize} hasOriginalImage={!!originalImage}
+                    mode={mode} onModeChange={setMode} hasOriginalImage={!!originalImage}
                     onAddText={handleAddText} onAddImageLayer={handleAddImageLayer}
                     onReset={() => {
                         addToHistory({}); setScale(initialScale ?? stamp.scale); setRotation(initialRotation ?? stamp.rotation ?? 0); setOffset(initialOffset ?? {x:0, y:0});

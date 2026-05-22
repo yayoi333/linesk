@@ -4,8 +4,6 @@ import { Move, Type, Wand2, Eraser, Pencil, Plus, RotateCcw, Image as ImageIcon,
 interface ModeSelectorProps {
   mode: string;
   onModeChange: (mode: 'move' | 'eraser' | 'wand' | 'restore' | 'text' | 'image' | 'draw') => void;
-  eraserSize: number;
-  onEraserSizeChange: (size: number) => void;
   hasOriginalImage: boolean;
   onAddText: () => void;
   onAddImageLayer?: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -17,8 +15,6 @@ interface ModeSelectorProps {
 export const ModeSelector: React.FC<ModeSelectorProps> = ({
   mode,
   onModeChange,
-  eraserSize,
-  onEraserSizeChange,
   hasOriginalImage,
   onAddText,
   onAddImageLayer,
@@ -83,21 +79,6 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
             >
             <Pencil size={20} />
             </button>
-
-            {/* Integrated Size Slider for Brush */}
-            {(mode === 'eraser' || mode === 'restore') && (
-                <>
-                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                    <input 
-                    type="range" 
-                    min="1" 
-                    max="50" 
-                    value={eraserSize} 
-                    onChange={(e) => onEraserSizeChange(Number(e.target.value))} 
-                    className="w-20 accent-primary-500"
-                    />
-                </>
-            )}
          </div>
 
          {/* Text Add Button */}
