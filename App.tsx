@@ -2,7 +2,7 @@
 // X/Threads: @yayoi_threee
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Download, Loader2, Image as ImageIcon, Grid, Languages, Settings, ExternalLink, Plus, X as XIcon, Save, GripVertical, Smartphone, Copy, Check, Wand2, Crop, Sliders, Move, ChevronDown, ChevronUp, Info, CheckCircle2, RotateCw, Layers, Minus, Plus as PlusIcon, Trash2, Type } from 'lucide-react';
+import { Upload, Download, Loader2, Image as ImageIcon, Grid, Languages, Settings, ExternalLink, Plus, X as XIcon, Save, GripVertical, Smartphone, Copy, Check, Wand2, Crop, Sliders, Move, ChevronDown, ChevronUp, Info, CheckCircle2, RotateCw, Layers, Minus, Plus as PlusIcon, Trash2, Type, Lock } from 'lucide-react';
 import { AppStep, Stamp, MetaData, ExportConfig, SourceImage, TARGET_WIDTH, TARGET_HEIGHT, MAIN_WIDTH, MAIN_HEIGHT, TAB_WIDTH, TAB_HEIGHT, TextObject, ImageLayerObject, DrawingStroke } from './types';
 import { processUploadedImage, reprocessStampWithTolerance } from './lib/imageProcessing';
 import { translateMeta } from './lib/gemini';
@@ -12,6 +12,14 @@ import { StampEditorModal } from './components/StampEditorModal';
 import { ManualCropModal } from './components/ManualCropModal';
 import { TextSetModal } from './components/TextSetModal';
 import { removeGridLines, detectGridLines } from './lib/gridRemoval';
+
+const isIOSDevice = () => {
+  if (typeof window === 'undefined') return false;
+
+  const ua = window.navigator.userAgent;
+  return /iP(ad|hone|od)/.test(ua) ||
+    (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
+};
 
 const StampPreview = React.memo<{ stamp: Stamp; previewBg: string }>(({ stamp, previewBg }) => {
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -207,6 +215,7 @@ const TextCounter = ({ current, min, max }: { current: number, min: number, max:
 
 export default function App() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  const useArrowReorder = isIOSDevice();
 
   useEffect(() => {
     const runCheck = async () => {
@@ -246,10 +255,14 @@ export default function App() {
   const [manualCropInitialSourceId, setManualCropInitialSourceId] = useState<string | undefined>(undefined);
   const [targetReplaceId, setTargetReplaceId] = useState<string | null>(null);
   const [previewBg, setPreviewBg] = useState<string>('checker');
+  const [cardSize, setCardSize] = useState(160);
+  const deferredCardSize = React.useDeferredValue(cardSize);
   
   // Global Settings
   const [globalTolerance, setGlobalTolerance] = useState(20);
   const [gapTolerance, setGapTolerance] = useState(15); 
+  const [isGapToleranceLocked, setIsGapToleranceLocked] = useState(false);
+  const [isGlobalToleranceLocked, setIsGlobalToleranceLocked] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
 
   // New Image Processing State
@@ -668,10 +681,10 @@ export default function App() {
     if (files.length === 0) return;
     const validFiles = files.filter(f => f.type === 'image/png' || f.type === 'image/jpeg');
     if (validFiles.length === 0) return alert('PNGまたはJPEG画像を選択してください');
-    const remainingSlots = 5 - sourceImages.length;
+    const remainingSlots = 50 - sourceImages.length;
     const filesToAdd = validFiles.slice(0, remainingSlots);
     if (filesToAdd.length < validFiles.length) {
-        alert('画像は最大5枚までです');
+        alert('画像は最大50枚までです');
     }
     let gridDetected = false;
     for (const file of filesToAdd) {
@@ -879,10 +892,12 @@ export default function App() {
   };
 
   const handleGlobalToleranceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (isGlobalToleranceLocked) return;
       setGlobalTolerance(Number(e.target.value));
   };
   
   const handleGapToleranceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (isGapToleranceLocked) return;
       setGapTolerance(Number(e.target.value));
   };
 
@@ -1131,6 +1146,18 @@ export default function App() {
     dragOverItem.current = null;
   };
 
+  const moveStamp = (index: number, direction: 'prev' | 'next') => {
+    if (direction === 'prev' && index === 0) return;
+    if (direction === 'next' && index === stamps.length - 1) return;
+
+    const newIndex = direction === 'prev' ? index - 1 : index + 1;
+    const newStamps = [...stamps];
+    const item = newStamps[index];
+    newStamps.splice(index, 1);
+    newStamps.splice(newIndex, 0, item);
+    setStamps(newStamps);
+  };
+
   const backgroundOptions = [
     { value: 'checker', label: '透明', color: 'bg-gray-200' }, 
     { value: '#ffffff', label: '白', color: 'bg-white border' },
@@ -1194,22 +1221,112 @@ export default function App() {
                         </div>
                         <div className="hidden sm:block h-6 w-px bg-gray-200"></div>
                         <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1 text-xs font-bold text-gray-500"><Layers size={14} /><span className="hidden sm:inline">まとめる強さ</span></div>
-                            <div className="flex items-center gap-1 bg-gray-50 rounded-lg p-1 border border-gray-200">
-                                <button onClick={() => setGapTolerance(Math.max(0, gapTolerance - 1))} className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold"><Minus size={12} /></button>
-                                <input type="range" min="0" max="50" value={gapTolerance} onChange={handleGapToleranceChange} className="w-16 accent-primary-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
-                                <button onClick={() => setGapTolerance(Math.min(50, gapTolerance + 1))} className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold"><PlusIcon size={12} /></button>
+                            <button
+                              onClick={() => setIsGapToleranceLocked(!isGapToleranceLocked)}
+                              className={`flex items-center gap-1 text-xs font-bold transition-colors ${
+                                isGapToleranceLocked ? 'text-primary-600' : 'text-gray-500 hover:text-primary-500'
+                              }`}
+                            >
+                              {isGapToleranceLocked ? <Lock size={14} /> : <Layers size={14} />}
+                              <span className="hidden sm:inline">まとめる強さ</span>
+                            </button>
+                            <div className={`flex items-center gap-1 rounded-lg p-1 border transition-all ${
+                              isGapToleranceLocked ? 'bg-gray-100 border-gray-100 opacity-60' : 'bg-gray-50 border-gray-200'
+                            }`}>
+                                <button
+                                  onClick={() => setGapTolerance(Math.max(0, gapTolerance - 1))}
+                                  disabled={isGapToleranceLocked}
+                                  className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <Minus size={12} />
+                                </button>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="50"
+                                  value={gapTolerance}
+                                  onChange={handleGapToleranceChange}
+                                  disabled={isGapToleranceLocked}
+                                  className="w-16 accent-primary-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
+                                />
+                                <button
+                                  onClick={() => setGapTolerance(Math.min(50, gapTolerance + 1))}
+                                  disabled={isGapToleranceLocked}
+                                  className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <PlusIcon size={12} />
+                                </button>
                                 <span className="text-xs text-gray-500 font-mono w-6 text-right shrink-0">{gapTolerance}</span>
                             </div>
                             {isRegenerating && <Loader2 size={14} className="animate-spin text-primary-500" />}
                         </div>
                         <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1 text-xs font-bold text-gray-500"><Sliders size={14} /><span className="hidden sm:inline">一括透過</span></div>
-                            <div className="flex items-center gap-1 bg-gray-50 rounded-lg p-1 border border-gray-200">
-                                <button onClick={() => setGlobalTolerance(Math.max(1, globalTolerance - 1))} className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold"><Minus size={12} /></button>
-                                <input type="range" min="1" max="100" value={globalTolerance} onChange={handleGlobalToleranceChange} className="w-16 accent-primary-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
-                                <button onClick={() => setGlobalTolerance(Math.min(100, globalTolerance + 1))} className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold"><PlusIcon size={12} /></button>
+                            <button
+                              onClick={() => setIsGlobalToleranceLocked(!isGlobalToleranceLocked)}
+                              className={`flex items-center gap-1 text-xs font-bold transition-colors ${
+                                isGlobalToleranceLocked ? 'text-primary-600' : 'text-gray-500 hover:text-primary-500'
+                              }`}
+                            >
+                              {isGlobalToleranceLocked ? <Lock size={14} /> : <Sliders size={14} />}
+                              <span className="hidden sm:inline">一括透過</span>
+                            </button>
+                            <div className={`flex items-center gap-1 rounded-lg p-1 border transition-all ${
+                              isGlobalToleranceLocked ? 'bg-gray-100 border-gray-100 opacity-60' : 'bg-gray-50 border-gray-200'
+                            }`}>
+                                <button
+                                  onClick={() => setGlobalTolerance(Math.max(1, globalTolerance - 1))}
+                                  disabled={isGlobalToleranceLocked}
+                                  className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <Minus size={12} />
+                                </button>
+                                <input
+                                  type="range"
+                                  min="1"
+                                  max="100"
+                                  value={globalTolerance}
+                                  onChange={handleGlobalToleranceChange}
+                                  disabled={isGlobalToleranceLocked}
+                                  className="w-16 accent-primary-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
+                                />
+                                <button
+                                  onClick={() => setGlobalTolerance(Math.min(100, globalTolerance + 1))}
+                                  disabled={isGlobalToleranceLocked}
+                                  className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <PlusIcon size={12} />
+                                </button>
                                 <span className="text-xs text-gray-500 font-mono w-6 text-right shrink-0">{globalTolerance}</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 text-xs font-bold text-gray-500">
+                                <ImageIcon size={14} />
+                                <span className="hidden sm:inline">表示サイズ</span>
+                            </div>
+                            <div className="flex items-center gap-1 bg-gray-50 rounded-lg p-1 border border-gray-200">
+                                <button
+                                    onClick={() => setCardSize(prev => Math.max(40, prev - 10))}
+                                    className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold"
+                                >
+                                    <Minus size={12} />
+                                </button>
+                                <input
+                                    type="range"
+                                    min="40"
+                                    max="300"
+                                    step="10"
+                                    value={cardSize}
+                                    onChange={(e) => setCardSize(Number(e.target.value))}
+                                    className="w-16 accent-primary-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                />
+                                <button
+                                    onClick={() => setCardSize(prev => Math.min(300, prev + 10))}
+                                    className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold"
+                                >
+                                    <PlusIcon size={12} />
+                                </button>
+                                <span className="text-xs text-gray-500 font-mono w-8 text-right shrink-0">{cardSize}</span>
                             </div>
                         </div>
                         <div className="hidden sm:block h-6 w-px bg-gray-200"></div>
@@ -1248,10 +1365,10 @@ export default function App() {
             )}
             <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl text-center border-4 border-dashed border-primary-200 max-w-2xl w-full">
               <div className="relative hover:opacity-80 transition cursor-pointer mb-6">
-                <input type="file" multiple accept="image/png, image/jpeg" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" disabled={sourceImages.length >= 5} />
+                <input type="file" multiple accept="image/png, image/jpeg" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" disabled={sourceImages.length >= 50} />
                 <div className="bg-primary-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-primary-600"><Upload size={32} /></div>
                 <h2 className="text-xl sm:text-2xl font-bold text-gray-700 mb-1">画像をここにドロップ</h2>
-                <p className="text-gray-500 mb-4 text-sm">またはクリックして選択 (最大5枚)</p>
+                <p className="text-gray-500 mb-4 text-sm">またはクリックして選択 (最大50枚)</p>
                 <div className="inline-block bg-primary-600 text-white px-6 py-3 rounded-full font-bold shadow-lg shadow-primary-200">画像を追加する</div>
               </div>
               <div className="border-t border-gray-200 pt-4">
@@ -1277,15 +1394,15 @@ export default function App() {
             </div>
             {sourceImages.length > 0 && (
                 <div className="w-full max-w-2xl">
-                    <div className="flex justify-between items-end mb-2"><h3 className="text-gray-600 font-bold flex items-center gap-2">アップロード済み ({sourceImages.length}/5)</h3></div>
-                    <div className="grid grid-cols-5 gap-4">
+                    <div className="flex justify-between items-end mb-2"><h3 className="text-gray-600 font-bold flex items-center gap-2">アップロード済み ({sourceImages.length}/50)</h3></div>
+                    <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
                         {sourceImages.map(img => (
                             <div key={img.id} className="relative group aspect-square rounded-xl overflow-hidden shadow-md border bg-white">
                                 <img src={img.url} alt="source" className="w-full h-full object-cover" />
                                 <button onClick={() => removeSourceImage(img.id)} className="absolute top-1 right-1 bg-black/50 hover:bg-red-500 text-white p-1 rounded-full transition"><XIcon size={12} /></button>
                             </div>
                         ))}
-                        {sourceImages.length < 5 && (
+                        {sourceImages.length < 50 && (
                              <div className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 relative hover:bg-white hover:border-primary-400 transition">
                                 <Plus size={24} /><input type="file" multiple accept="image/png, image/jpeg" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                              </div>
@@ -1339,36 +1456,95 @@ export default function App() {
                     </div>
                 </div>
               </div>
-              <div className="flex justify-end"><p className="text-xs text-gray-400">※ドラッグ＆ドロップで並べ替えができます</p></div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              <div className="flex justify-end">
+                <p className="text-xs text-gray-400">
+                  {useArrowReorder
+                    ? '※矢印ボタンで並べ替えができます'
+                    : '※ドラッグ＆ドロップで並べ替えができます'}
+                </p>
+              </div>
+              <div
+                className={`grid ${cardSize < 80 ? 'gap-1' : 'gap-4'}`}
+                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${deferredCardSize}px, 1fr))` }}
+              >
                 {stamps.map((stamp, index) => (
-                    <div key={stamp.id} draggable onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragOver={handleDragOver} onDragEnd={handleDragEnd} className={`bg-white rounded-xl shadow border-2 transition-all overflow-hidden ${stamp.isExcluded ? 'opacity-50 border-gray-200' : 'border-transparent hover:border-primary-300'} cursor-move`}>
+                    <div
+                      key={stamp.id}
+                      draggable={!useArrowReorder}
+                      onDragStart={!useArrowReorder ? (e) => handleDragStart(e, index) : undefined}
+                      onDragEnter={!useArrowReorder ? (e) => handleDragEnter(e, index) : undefined}
+                      onDragOver={!useArrowReorder ? handleDragOver : undefined}
+                      onDragEnd={!useArrowReorder ? handleDragEnd : undefined}
+                      className={`bg-white rounded-xl shadow border-2 transition-all overflow-hidden ${
+                        stamp.isExcluded ? 'opacity-50 border-gray-200' : 'border-transparent hover:border-primary-300'
+                      } ${useArrowReorder ? 'cursor-default' : 'cursor-move'}`}
+                    >
                         <div className="w-full aspect-[37/32] relative group" onClick={() => setEditingStamp(stamp)}>
                             <StampPreview stamp={stamp} previewBg={previewBg} />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 flex items-center justify-center transition-colors pointer-events-none"><span className="opacity-0 group-hover:opacity-100 bg-white/90 text-xs px-2 py-1 rounded-full font-bold shadow-sm">編集</span></div>
-                            <div className="absolute top-2 left-2 bg-white/50 p-1 rounded cursor-move opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"><GripVertical size={14} className="text-gray-600" /></div>
-                            <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity pointer-events-auto">
-                                <button onClick={(e) => { e.stopPropagation(); downloadSingleStamp(stamp); }} className="bg-white text-gray-600 p-1.5 rounded-full shadow hover:bg-gray-100 hover:text-primary-600 cursor-pointer" title="ダウンロード"><Download size={14} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); openManualCrop(stamp.id, stamp.sourceImageId); }} className="bg-white text-gray-600 p-1.5 rounded-full shadow hover:bg-gray-100 hover:text-primary-600 cursor-pointer" title="再切り出し"><Crop size={14} /></button>
-                            </div>
+                            {cardSize >= 80 && (
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 flex items-center justify-center transition-colors pointer-events-none">
+                                <span className="opacity-0 group-hover:opacity-100 bg-white/90 text-xs px-2 py-1 rounded-full font-bold shadow-sm">編集</span>
+                              </div>
+                            )}
+                            {cardSize >= 80 && !useArrowReorder && (
+                              <div className="absolute top-2 left-2 bg-white/50 p-1 rounded cursor-move opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                <GripVertical size={14} className="text-gray-600" />
+                              </div>
+                            )}
+                            {cardSize >= 80 && (
+                              <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity pointer-events-auto">
+                                  {useArrowReorder && (
+                                    <div className="flex gap-1 mr-1">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          moveStamp(index, 'prev');
+                                        }}
+                                        disabled={index === 0}
+                                        className="bg-white/90 text-gray-700 p-1.5 rounded-full shadow hover:bg-white disabled:opacity-30 cursor-pointer"
+                                        title="前へ移動"
+                                      >
+                                        <ChevronUp size={14} className="-rotate-90" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          moveStamp(index, 'next');
+                                        }}
+                                        disabled={index === stamps.length - 1}
+                                        className="bg-white/90 text-gray-700 p-1.5 rounded-full shadow hover:bg-white disabled:opacity-30 cursor-pointer"
+                                        title="次へ移動"
+                                      >
+                                        <ChevronDown size={14} className="-rotate-90" />
+                                      </button>
+                                    </div>
+                                  )}
+                                  <button onClick={(e) => { e.stopPropagation(); downloadSingleStamp(stamp); }} className="bg-white text-gray-600 p-1.5 rounded-full shadow hover:bg-gray-100 hover:text-primary-600 cursor-pointer" title="ダウンロード"><Download size={14} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openManualCrop(stamp.id, stamp.sourceImageId); }} className="bg-white text-gray-600 p-1.5 rounded-full shadow hover:bg-gray-100 hover:text-primary-600 cursor-pointer" title="再切り出し"><Crop size={14} /></button>
+                              </div>
+                            )}
                         </div>
-                        <div className="px-3 py-2 bg-gray-50 border-t flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <input type="checkbox" checked={!stamp.isExcluded} onChange={(e) => { e.stopPropagation(); toggleExclude(stamp.id); }} className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer shadow-sm" />
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDeleteTarget({id: stamp.id, index: index});
-                                  }}
-                                  className="w-5 h-5 flex items-center justify-center rounded-full text-gray-300 hover:bg-red-100 hover:text-red-500 transition"
-                                  title="完全に削除"
-                                >
-                                  <XIcon size={14} />
-                                </button>
-                            </div>
-                            <div className="font-bold text-gray-500 text-sm">{stamp.isExcluded ? '除外' : `No.${String(index + 1).padStart(2,'0')}`}</div>
-                            <div className="flex gap-1 h-5">{mainConfig?.id === stamp.id && <span className="bg-yellow-400 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center">MAIN</span>}{tabConfig?.id === stamp.id && <span className="bg-blue-400 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center">TAB</span>}</div>
-                        </div>
+                        {cardSize >= 80 && (
+                          <div className="px-3 py-2 bg-gray-50 border-t flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                  <input type="checkbox" checked={!stamp.isExcluded} onChange={(e) => { e.stopPropagation(); toggleExclude(stamp.id); }} className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer shadow-sm" />
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteTarget({id: stamp.id, index: index});
+                                    }}
+                                    className="w-5 h-5 flex items-center justify-center rounded-full text-gray-300 hover:bg-red-100 hover:text-red-500 transition"
+                                    title="完全に削除"
+                                  >
+                                    <XIcon size={14} />
+                                  </button>
+                              </div>
+                              <div className="font-bold text-gray-500 text-sm">{stamp.isExcluded ? '除外' : `No.${String(index + 1).padStart(2,'0')}`}</div>
+                              <div className="flex gap-1 h-5">{mainConfig?.id === stamp.id && <span className="bg-yellow-400 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center">MAIN</span>}{tabConfig?.id === stamp.id && <span className="bg-blue-400 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center">TAB</span>}</div>
+                          </div>
+                        )}
                     </div>
                 ))}
               </div>
