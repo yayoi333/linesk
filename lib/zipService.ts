@@ -125,33 +125,56 @@ const drawImageLayerOnExport = (
 };
 
 const drawStrokeOnExport = (ctx: CanvasRenderingContext2D, stroke: DrawingStroke) => {
-    if (stroke.points.length < 2) return;
+    const strokesToDraw = stroke.strokes && stroke.strokes.length > 0
+      ? stroke.strokes
+      : (stroke.points && stroke.points.length >= 2
+        ? [{
+            points: stroke.points,
+            color: stroke.color,
+            width: stroke.width,
+            opacity: stroke.opacity,
+            outlineColor: stroke.outlineColor,
+            outlineWidth: stroke.outlineWidth
+          }]
+        : []);
+
+    if (strokesToDraw.length === 0) return;
+
     ctx.save();
-    ctx.globalAlpha = stroke.opacity;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    
-    const tracePath = () => {
-      ctx.beginPath();
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-      for (let i = 1; i < stroke.points.length; i++) {
-        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+
+    // Phase 1: Draw all outlines to merge them into a single continuous border
+    strokesToDraw.forEach(s => {
+      if (s.points.length < 2) return;
+      const oWidth = s.outlineWidth ?? 0;
+      if (oWidth > 0) {
+        ctx.beginPath();
+        ctx.moveTo(s.points[0].x, s.points[0].y);
+        for (let i = 1; i < s.points.length; i++) {
+          ctx.lineTo(s.points[i].x, s.points[i].y);
+        }
+        ctx.globalAlpha = s.opacity;
+        ctx.strokeStyle = s.outlineColor || '#ffffff';
+        ctx.lineWidth = s.width + (oWidth * 2);
+        ctx.stroke();
       }
-    };
-    
-    if (stroke.outlineWidth && stroke.outlineWidth > 0) {
-      tracePath();
-      ctx.strokeStyle = stroke.outlineColor || '#ffffff';
-      ctx.lineWidth = stroke.width + (stroke.outlineWidth * 2);
+    });
+
+    // Phase 2: Draw all foreground colored lines on top
+    strokesToDraw.forEach(s => {
+      if (s.points.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(s.points[0].x, s.points[0].y);
+      for (let i = 1; i < s.points.length; i++) {
+        ctx.lineTo(s.points[i].x, s.points[i].y);
+      }
+      ctx.globalAlpha = s.opacity;
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = s.width;
       ctx.stroke();
-    }
-    
-    tracePath();
-    ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.width;
-    ctx.stroke();
-    
-    ctx.globalAlpha = 1.0;
+    });
+
     ctx.restore();
 };
 
