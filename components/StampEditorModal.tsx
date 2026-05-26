@@ -1419,7 +1419,10 @@ export const StampEditorModal: React.FC<Props> = ({
              )}
 
              {/* レイヤー順パネル（テキスト・画像レイヤー・手書きが1つでもある場合に表示） */}
-             {(textObjects.length > 0 || imageLayers.length > 0 || drawingStrokes.length > 0) && (
+             {mode !== 'wand' &&
+              mode !== 'eraser' &&
+              mode !== 'restore' &&
+              (textObjects.length > 0 || imageLayers.length > 0 || drawingStrokes.length > 0) && (
                 <CollapsiblePanel
                     title="レイヤー順"
                     icon={<Layers size={14} className="text-gray-500" />}
