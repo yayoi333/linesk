@@ -984,18 +984,30 @@ export default function App() {
   const handleTranslation = async () => {
     const errors = validateText();
     if (errors.length > 0) return alert(errors.join('\n'));
+
+    if (!savedApiKey) {
+      setShowApiKeyModal(true);
+      return alert('翻訳にはGemini APIキーの設定が必要です。');
+    }
+
     setIsTranslating(true);
     try {
-        const result = await translateMeta(meta.stampNameJa, meta.stampDescJa);
-        setMeta(prev => ({ 
-            ...prev, 
-            stampNameEn: result.enName || prev.stampNameEn,
-            stampDescEn: result.enDesc || prev.stampDescEn
-        }));
+      const result = await translateMeta(
+        meta.stampNameJa,
+        meta.stampDescJa,
+        savedApiKey
+      );
+
+      setMeta(prev => ({
+        ...prev,
+        stampNameEn: result.enName || prev.stampNameEn,
+        stampDescEn: result.enDesc || prev.stampDescEn,
+      }));
     } catch (e: any) {
-        alert('翻訳に失敗しました');
+      console.error('翻訳エラー:', e);
+      alert(`翻訳に失敗しました: ${e?.message || '原因不明のエラー'}`);
     } finally {
-        setIsTranslating(false);
+      setIsTranslating(false);
     }
   };
 
