@@ -7,10 +7,9 @@ export function setGeminiApiKey(key: string) {
 }
 
 function getGeminiApiKey(): string {
-  const localStorageKey =
-    typeof window !== "undefined"
-      ? localStorage.getItem("gemini_api_key")
-      : null;
+  // APIキーは localStorage に暗号化して保存される（lib/storage.ts の saveApiKey/loadApiKey）。
+  // ここでは平文の localStorage を直接参照せず、App 側で復号済みのキーが
+  // setGeminiApiKey / translateMeta の apiKeyOverride 経由で渡される前提とする。
 
   // @ts-ignore
   const processEnvKey =
@@ -23,7 +22,7 @@ function getGeminiApiKey(): string {
       ? (import.meta as any).env?.VITE_GEMINI_API_KEY
       : undefined;
 
-  return localStorageKey || customApiKey || processEnvKey || viteEnvKey || "";
+  return customApiKey || processEnvKey || viteEnvKey || "";
 }
 
 export async function translateMeta(

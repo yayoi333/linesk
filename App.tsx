@@ -7,7 +7,7 @@ import { AppStep, Stamp, MetaData, ExportConfig, SourceImage, TARGET_WIDTH, TARG
 import { processUploadedImage, reprocessStampWithTolerance } from './lib/imageProcessing';
 import { translateMeta } from './lib/gemini';
 import { createAndDownloadZip, createFinalImageBlob, renderAllLayers, loadProjectFromZip } from './lib/zipService';
-import { saveProject, loadProject, deleteProject, restoreSourceImages } from './lib/storage';
+import { saveProject, loadProject, deleteProject, restoreSourceImages, saveApiKey, loadApiKey, removeApiKey, clearMaterials } from './lib/storage';
 import { StampEditorModal } from './components/StampEditorModal';
 import { ManualCropModal } from './components/ManualCropModal';
 import { TextSetModal } from './components/TextSetModal';
@@ -301,7 +301,30 @@ export default function App() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [savedApiKey, setSavedApiKey] = useState<string | null>(null);
-  const handleDeleteStamp = () => { if (!deleteTarget) return; setStamps(prev => prev.filter(s => s.id !== deleteTarget.id)); if (mainConfig?.id === deleteTarget.id) setMainConfig(null); if (tabConfig?.id === deleteTarget.id) setTabConfig(null); setDeleteTarget(null); };
+
+  // Delete All Data State
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [deleteAllIncludeApiKey, setDeleteAllIncludeApiKey] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  const handleDeleteStamp = async () => {
+    if (!deleteTarget) return;
+    const nextStamps = stamps.filter(s => s.id !== deleteTarget.id);
+    const nextMainConfig = mainConfig?.id === deleteTarget.id ? null : mainConfig;
+    const nextTabConfig = tabConfig?.id === deleteTarget.id ? null : tabConfig;
+    setStamps(nextStamps);
+    setMainConfig(nextMainConfig);
+    setTabConfig(nextTabConfig);
+    setDeleteTarget(null);
+    // 「この操作は取り消せません」の表示どおり、削除を即時に保存へ反映する。
+    // （自動保存は stamps が空になったときや復元直後のスキップ期間中は動かないため、ここで明示的に保存する）
+    try {
+      await saveProject(nextStamps, sourceImages, nextMainConfig, nextTabConfig, meta, globalTolerance, gapTolerance, previewBg);
+      setLastSavedAt(new Date().toISOString());
+    } catch (err) {
+      console.error('削除の即時保存に失敗:', err);
+    }
+  };
 
   const handleUnifyScale = () => {
     if (stamps.length === 0) return;
@@ -335,12 +358,16 @@ export default function App() {
   useEffect(() => { stampsRef.current = stamps; }, [stamps]);
 
   // --- Load API Key on Mount ---
+  // 暗号化保存されたAPIキーを復号して読み込む（旧形式の平文キーは自動で暗号化形式へ移行される）
   useEffect(() => {
-    const key = localStorage.getItem('gemini_api_key');
-    if (key) {
-      setSavedApiKey(key);
-      setApiKeyInput(key);
-    }
+    loadApiKey()
+      .then(key => {
+        if (key) {
+          setSavedApiKey(key);
+          setApiKeyInput(key);
+        }
+      })
+      .catch(err => console.error('APIキーの読み込みに失敗:', err));
   }, []);
 
   // --- Restore Check on Mount ---
@@ -533,21 +560,57 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 2500);
   };
 
-  const handleSaveApiKey = () => {
+  const handleSaveApiKey = async () => {
     const trimmed = apiKeyInput.trim();
     if (trimmed) {
-      localStorage.setItem('gemini_api_key', trimmed);
-      setSavedApiKey(trimmed);
-      showToast('APIキーを保存しました');
+      try {
+        await saveApiKey(trimmed);
+        setSavedApiKey(trimmed);
+        showToast('APIキーを保存しました');
+      } catch (err) {
+        console.error('APIキーの保存に失敗:', err);
+        alert('APIキーの保存に失敗しました');
+        return;
+      }
     }
     setShowApiKeyModal(false);
   };
 
   const handleRemoveApiKey = () => {
-    localStorage.removeItem('gemini_api_key');
+    removeApiKey();
     setSavedApiKey(null);
     setApiKeyInput('');
     showToast('APIキーを削除しました');
+  };
+
+  // --- Delete All Data ---
+  const handleDeleteAllData = async () => {
+    setIsDeletingAll(true);
+    try {
+      await deleteProject();
+      await clearMaterials();
+      if (deleteAllIncludeApiKey) {
+        removeApiKey();
+        setSavedApiKey(null);
+        setApiKeyInput('');
+      }
+      setStamps([]);
+      setSourceImages([]);
+      setMainConfig(null);
+      setTabConfig(null);
+      setMeta({ stampNameJa: '', stampDescJa: '', stampNameEn: '', stampDescEn: '' });
+      setLastSavedAt(null);
+      setHasGridLines(false);
+      setShowDeleteAllModal(false);
+      setDeleteAllIncludeApiKey(false);
+      setStep(AppStep.UPLOAD);
+      showToast('保存データをすべて削除しました');
+    } catch (err) {
+      console.error('全データ削除に失敗:', err);
+      alert('データの削除に失敗しました');
+    } finally {
+      setIsDeletingAll(false);
+    }
   };
 
   // --- Auto Save ---
@@ -1383,6 +1446,10 @@ export default function App() {
                 <p className="text-gray-500 mb-4 text-sm">またはクリックして選択 (最大50枚)</p>
                 <div className="inline-block bg-primary-600 text-white px-6 py-3 rounded-full font-bold shadow-lg shadow-primary-200">画像を追加する</div>
               </div>
+              <p className="text-[11px] text-gray-400 mb-4 flex items-center justify-center gap-1">
+                <Lock size={12} className="shrink-0" />
+                アップロードした画像はこの端末内（ブラウザ）だけで処理・保存され、外部には送信されません
+              </p>
               <div className="border-t border-gray-200 pt-4">
                 <div className="flex items-center gap-4 justify-center mb-3">
                   <div className="h-px bg-gray-300 w-12"></div>
@@ -1568,12 +1635,12 @@ export default function App() {
                         <div>
                             <div className="flex justify-between items-end mb-1"><label className="block text-sm font-medium text-gray-600">メイン画像 (240x240)</label><button onClick={() => downloadSpecialStamp(mainConfig, MAIN_WIDTH, MAIN_HEIGHT, 'main.png')} disabled={!mainConfig} className="text-gray-400 hover:text-primary-600 disabled:opacity-30" title="ダウンロード"><Download size={18} /></button></div>
                             <select className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500 mb-2 bg-primary-50" value={mainConfig?.id || ''} onChange={(e) => handleMainSelect(e.target.value)}>{stamps.map((s, i) => (<option key={s.id} value={s.id}>{s.isExcluded ? `(除外) スタンプ ${i + 1}` : `No.${i + 1} のスタンプ`}</option>))}</select>
-                            <CanvasPreview config={mainConfig} width={MAIN_WIDTH} height={MAIN_HEIGHT} previewBg={previewBg} stamps={stamps} onClick={() => { setEditingSpecialType('main'); const s = stamps.find(x => x.id === mainConfig?.id); if(s) setEditingStamp(s); }} />
+                            <CanvasPreview config={mainConfig} width={MAIN_WIDTH} height={MAIN_HEIGHT} previewBg={previewBg} stamps={stamps} onClick={() => { const s = stamps.find(x => x.id === mainConfig?.id); if(s && mainConfig) { setEditingSpecialType('main'); /* 保存済みの編集内容（消しゴム編集後の画像・反転・レイヤー順）を引き継いで開く */ setEditingStamp({ ...s, dataUrl: mainConfig.customDataUrl ?? s.dataUrl, flipH: mainConfig.flipH ?? false, flipV: mainConfig.flipV ?? false, mainImageLayerOrder: mainConfig.mainImageLayerOrder ?? 100 }); } }} />
                         </div>
                         <div>
                              <div className="flex justify-between items-end mb-1"><label className="block text-sm font-medium text-gray-600">タブ画像 (96x74)</label><button onClick={() => downloadSpecialStamp(tabConfig, TAB_WIDTH, TAB_HEIGHT, 'tab.png')} disabled={!tabConfig} className="text-gray-400 hover:text-primary-600 disabled:opacity-30" title="ダウンロード"><Download size={18} /></button></div>
                             <select className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500 mb-2 bg-primary-50" value={tabConfig?.id || ''} onChange={(e) => handleTabSelect(e.target.value)}>{stamps.map((s, i) => (<option key={s.id} value={s.id}>{s.isExcluded ? `(除外) スタンプ ${i + 1}` : `No.${i + 1} のスタンプ`}</option>))}</select>
-                            <CanvasPreview config={tabConfig} width={TAB_WIDTH} height={TAB_HEIGHT} previewBg={previewBg} stamps={stamps} onClick={() => { setEditingSpecialType('tab'); const s = stamps.find(x => x.id === tabConfig?.id); if(s) setEditingStamp(s); }} />
+                            <CanvasPreview config={tabConfig} width={TAB_WIDTH} height={TAB_HEIGHT} previewBg={previewBg} stamps={stamps} onClick={() => { const s = stamps.find(x => x.id === tabConfig?.id); if(s && tabConfig) { setEditingSpecialType('tab'); /* 保存済みの編集内容（消しゴム編集後の画像・反転・レイヤー順）を引き継いで開く */ setEditingStamp({ ...s, dataUrl: tabConfig.customDataUrl ?? s.dataUrl, flipH: tabConfig.flipH ?? false, flipV: tabConfig.flipV ?? false, mainImageLayerOrder: tabConfig.mainImageLayerOrder ?? 100 }); } }} />
                         </div>
                     </div>
                 </div>
@@ -1592,6 +1659,12 @@ export default function App() {
                     <div className="flex items-center gap-2 mb-4"><input type="checkbox" id="renumber" checked={renumber} onChange={e => setRenumber(e.target.checked)} className="rounded text-primary-600" /><label htmlFor="renumber" className="text-sm text-gray-700">番号を振り直す (01.png〜)</label></div>
                     <button onClick={handleExport} className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2"><Download size={20} />ZIPをダウンロード</button>
                     <div className="pt-4 border-t border-primary-200/50 space-y-3"><a href="https://creator.line.me/ja/stickermaker/" target="_blank" rel="noopener noreferrer" className="w-full bg-white text-[#06C755] border border-[#06C755] font-bold py-3 rounded-xl flex items-center justify-center gap-2 md:hidden"><Smartphone size={18} />LINEスタンプメーカー</a><a href="https://creator.line.me/ja/" target="_blank" rel="noopener noreferrer" className="w-full bg-white text-gray-600 border border-gray-300 font-bold py-3 rounded-xl flex items-center justify-center gap-2"><ExternalLink size={18} />クリエイターズマーケット</a></div>
+                </div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-red-100">
+                    <button onClick={() => setShowDeleteAllModal(true)} className="w-full flex items-center justify-center gap-2 text-red-500 border border-red-200 hover:bg-red-50 font-bold py-2.5 rounded-xl transition text-sm">
+                        <Trash2 size={16} />データをすべて削除する
+                    </button>
+                    <p className="text-[10px] text-gray-400 mt-2 text-center">この端末（ブラウザ）に保存されたプロジェクト・素材データを削除します</p>
                 </div>
             </div>
           </div>
@@ -1671,6 +1744,24 @@ export default function App() {
                 <div className="flex gap-3">
                     <button onClick={() => setDeleteTarget(null)} className="flex-1 bg-white border border-gray-300 text-gray-600 font-bold py-2.5 rounded-xl shadow-sm transition hover:bg-gray-50">キャンセル</button>
                     <button onClick={handleDeleteStamp} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 rounded-xl shadow transition">削除する</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {showDeleteAllModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center">
+                <div className="text-4xl mb-3">⚠️</div>
+                <h3 className="text-lg font-bold text-gray-800 mb-2">データをすべて削除しますか？</h3>
+                <p className="text-sm text-gray-500 mb-4">この端末（ブラウザ）に保存されている保存済みプロジェクトと素材ライブラリを削除します。<br/>この操作は取り消せません。</p>
+                <label className="flex items-center justify-center gap-2 text-xs text-gray-600 mb-6 cursor-pointer">
+                    <input type="checkbox" checked={deleteAllIncludeApiKey} onChange={e => setDeleteAllIncludeApiKey(e.target.checked)} className="rounded border-gray-300 text-red-500 focus:ring-red-400" />
+                    APIキー設定も削除する
+                </label>
+                <div className="flex gap-3">
+                    <button onClick={() => setShowDeleteAllModal(false)} disabled={isDeletingAll} className="flex-1 bg-white border border-gray-300 text-gray-600 font-bold py-2.5 rounded-xl shadow-sm transition hover:bg-gray-50 disabled:opacity-50">キャンセル</button>
+                    <button onClick={handleDeleteAllData} disabled={isDeletingAll} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 rounded-xl shadow transition disabled:opacity-50">{isDeletingAll ? '削除中...' : '削除する'}</button>
                 </div>
             </div>
         </div>
