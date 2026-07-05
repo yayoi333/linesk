@@ -58,6 +58,6 @@ AIアシスタント（Claude / Codex 等）向けの引き継ぎメモ。作業
 
 ## 残タスク（2026-07-04 時点）
 
-1. Tailwind CDN（cdn.tailwindcss.com）の同梱化（バンドル化）＋ index.html の未使用 importmap 削除。見た目の完全一致検証が必須の大きめ作業
+1. Tailwind CDN の同梱化 → linesk は2026-07-05完了。残りのアプリは linesk リポジトリの TAILWIND_MIGRATION.md のレシピどおりに実施すること
 2. リポジトリ Private 化の判断（無料プランでは Private + Pages 不可 → GitHub Pro 月$4 か、他ホスティングへ引っ越し）— オーナー判断待ち
 3. 保存失敗がユーザーに通知されない箇所の改善（コンソールにしか出ない）などレビュー指摘の小物
