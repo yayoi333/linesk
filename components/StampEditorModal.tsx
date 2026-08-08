@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Stamp, TextObject, ImageLayerObject, DrawingStroke, TARGET_WIDTH, TARGET_HEIGHT } from '../types';
-import { Check, X, Sliders, Layers, Trash2, Move, Type, Image as ImageIcon, PenTool, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eraser, Wand2 } from 'lucide-react';
+import { Check, X, Sliders, Layers, Trash2, Move, Type, Image as ImageIcon, PenTool, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eraser, Wand2, CheckCircle2, RotateCcw } from 'lucide-react';
 import { drawTextOnCanvas } from '../lib/zipService';
 import { reprocessStampWithTolerance } from '../lib/imageProcessing';
 import { saveMaterial, loadMaterials, deleteMaterial, MaterialItem } from '../lib/storage';
@@ -41,6 +41,7 @@ interface Props {
   initialTextObjects?: TextObject[];
   initialImageLayers?: ImageLayerObject[];
   initialDrawingStrokes?: DrawingStroke[];
+  fillHoles?: boolean;
 }
 
 interface HistoryState {
@@ -71,7 +72,8 @@ export const StampEditorModal: React.FC<Props> = ({
   initialOffset,
   initialTextObjects,
   initialImageLayers,
-  initialDrawingStrokes
+  initialDrawingStrokes,
+  fillHoles = true
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -139,6 +141,8 @@ export const StampEditorModal: React.FC<Props> = ({
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const panContainerRef = useRef<HTMLDivElement>(null);
   const [previewBg, setPreviewBg] = useState(initialPreviewBg);
+  // スマホでは背景色をタップ式のドロップダウンで選ぶ(横一列だと画面からはみ出すため)
+  const [showBgPicker, setShowBgPicker] = useState(false);
 
   const [mode, setMode] = useState<'move' | 'eraser' | 'wand' | 'restore' | 'text' | 'image' | 'draw'>('move');
   const [isDragging, setIsDragging] = useState(false);
@@ -162,6 +166,8 @@ export const StampEditorModal: React.FC<Props> = ({
   const [activeImageHandle, setActiveImageHandle] = useState<'tl' | 'tr' | 'bl' | 'br' | null>(null);
 
   const [tolerance, setTolerance] = useState(stamp.currentTolerance || 50);
+  // このスタンプに適用する「囲みも透過」。個別指定があればそれを、なければ全体設定を使う。
+  const [localFillHoles, setLocalFillHoles] = useState(stamp.fillHolesOverride ?? fillHoles);
 
   const [workingDataUrl, setWorkingDataUrl] = useState(stamp.dataUrl);
   const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null);
@@ -938,13 +944,37 @@ export const StampEditorModal: React.FC<Props> = ({
       if (toleranceTimeoutRef.current) { clearTimeout(toleranceTimeoutRef.current); }
       toleranceTimeoutRef.current = window.setTimeout(async () => {
           if (stamp.originalDataUrl) {
-              try { const newDataUrl = await reprocessStampWithTolerance(stamp.originalDataUrl, newVal); setWorkingDataUrl(newDataUrl); } 
+              try { const newDataUrl = await reprocessStampWithTolerance(stamp.originalDataUrl, newVal, fillHoles); setWorkingDataUrl(newDataUrl); }
               catch (err) { console.error("Failed to reprocess", err); }
           }
       }, 300);
   };
+  const handleReset = () => {
+      addToHistory({}); setScale(initialScale ?? stamp.scale); setRotation(initialRotation ?? stamp.rotation ?? 0); setOffset(initialOffset ?? {x:0, y:0});
+      setFlipH(stamp.flipH ?? false); setFlipV(stamp.flipV ?? false); setTolerance(stamp.currentTolerance || 50); setWorkingDataUrl(stamp.dataUrl);
+      setTextObjects(initialTextObjects ?? stamp.textObjects ?? []); setImageLayers(initialImageLayers ?? stamp.imageLayers ?? []); setDrawingStrokes(initialDrawingStrokes ?? stamp.drawingStrokes ?? []);
+      setMainImageLayerOrder(stamp.mainImageLayerOrder ?? 100);
+  };
   const handleSave = () => {
-      const updatedStamp: Stamp = { ...stamp, scale, rotation, flipH, flipV, offsetX: offset.x, offsetY: offset.y, dataUrl: workingDataUrl, textObjects, imageLayers, drawingStrokes, currentTolerance: tolerance, mainImageLayerOrder };
+      // この編集画面で実際に変更があったかを判定する。
+      // 変更があったスタンプには印を付け、一覧の「まとめる強さ」「一括透過」で
+      // 上書き・作り直しされないようにする(一度付いた印は消さない)。
+      const listChanged = (a: unknown[] | undefined, b: unknown[] | undefined) =>
+          JSON.stringify(a ?? []) !== JSON.stringify(b ?? []);
+      const hasEdits =
+          workingDataUrl !== stamp.dataUrl ||
+          scale !== stamp.scale ||
+          rotation !== (stamp.rotation ?? 0) ||
+          flipH !== (stamp.flipH ?? false) ||
+          flipV !== (stamp.flipV ?? false) ||
+          offset.x !== stamp.offsetX ||
+          offset.y !== stamp.offsetY ||
+          mainImageLayerOrder !== (stamp.mainImageLayerOrder ?? 100) ||
+          listChanged(textObjects, stamp.textObjects) ||
+          listChanged(imageLayers, stamp.imageLayers) ||
+          listChanged(drawingStrokes, stamp.drawingStrokes) ||
+          localFillHoles !== (stamp.fillHolesOverride ?? fillHoles);
+      const updatedStamp: Stamp = { ...stamp, scale, rotation, flipH, flipV, offsetX: offset.x, offsetY: offset.y, dataUrl: workingDataUrl, textObjects, imageLayers, drawingStrokes, currentTolerance: tolerance, mainImageLayerOrder, fillHolesOverride: localFillHoles === fillHoles ? undefined : localFillHoles, isEdited: hasEdits || (stamp.isEdited ?? false) };
       onSave(updatedStamp); onClose();
   };
 
@@ -1162,13 +1192,70 @@ export const StampEditorModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full flex flex-col h-[95vh] relative">
-        <div className="px-3 py-2 border-b flex items-center bg-primary-50 rounded-t-xl shrink-0 gap-2">
-          <h3 className="font-bold text-gray-700 text-sm mr-auto">スタンプ編集 ({targetWidth}x{targetHeight})</h3>
-          <EditorToolbar viewZoom={viewZoom} onViewZoomChange={setViewZoom} historyIndex={historyIndex} historyLength={history.length} onUndo={undo} onRedo={redo} />
-          <div className="flex items-center gap-2">
-               <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-gray-200">
+    // スマホでは作業領域を広く取るため全画面表示にする(PCは従来どおり中央に浮かせる)
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-white rounded-none sm:rounded-xl shadow-2xl max-w-none sm:max-w-4xl w-full flex flex-col h-full sm:h-[95vh] relative">
+        <div className="px-3 py-2 border-b flex flex-wrap items-center bg-primary-50 sm:rounded-t-xl shrink-0 gap-2">
+          {/* スマホでは横幅が足りず閉じるボタンが画面外に出るため、タイトルはPCのみ表示 */}
+          <h3 className="hidden sm:block font-bold text-gray-700 text-sm mr-auto">スタンプ編集 ({targetWidth}x{targetHeight})</h3>
+          {/* スマホで1行に収まるよう縮められるようにする(中で折り返す) */}
+          <div className="flex-1 min-w-0 sm:flex-none flex justify-center">
+            <EditorToolbar viewZoom={viewZoom} onViewZoomChange={setViewZoom} historyIndex={historyIndex} historyLength={history.length} onUndo={undo} onRedo={redo} />
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={async () => {
+                  const next = !localFillHoles;
+                  setLocalFillHoles(next);
+                  if (stamp.originalDataUrl) {
+                    try { const newDataUrl = await reprocessStampWithTolerance(stamp.originalDataUrl, tolerance, next); setWorkingDataUrl(newDataUrl); }
+                    catch (err) { console.error("Failed to reprocess", err); }
+                  }
+                }}
+                className={`flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-full border transition shrink-0 ${
+                  localFillHoles
+                    ? 'bg-primary-600 border-primary-600 text-white hover:bg-primary-700'
+                    : 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200'
+                }`}
+                title="「○」の中、手と顔の間など、外側とつながっていない囲まれた背景色も透過します"
+              >
+                <CheckCircle2 size={14} />
+                <span className="hidden sm:inline">囲みも透過</span>
+                <span>{localFillHoles ? 'ON' : 'OFF'}</span>
+              </button>
+               {/* スマホ: タップでドロップダウン(横一列だと画面からはみ出すため) */}
+               <div className="relative sm:hidden">
+                    <button
+                        onClick={() => setShowBgPicker(!showBgPicker)}
+                        className="flex items-center gap-1 bg-white p-1.5 rounded-lg border border-gray-200"
+                        title="背景色"
+                    >
+                        <span
+                            className={`w-5 h-5 rounded-full block ${(backgroundOptions.find(o => o.value === previewBg) ?? backgroundOptions[0]).color}`}
+                            style={previewBg === 'checker' ? { backgroundImage: `url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAAXNSR0IArs4c6QAAAB5JREFUKFNjYCACAAAHOgD///+F8f///4X/09JvAgBwYw/57yQ+jAAAAABJRU5ErkJggg==')` } : {}}
+                        />
+                        <ChevronDown size={14} className="text-gray-400" />
+                    </button>
+                    {showBgPicker && (
+                        <>
+                            <div className="fixed inset-0 z-10" onClick={() => setShowBgPicker(false)} />
+                            {/* w-max がないと絶対配置の幅が親ボタン幅に制限され、色の丸が重なってしまう */}
+                            <div className="absolute right-0 top-full mt-1 z-20 w-max bg-white rounded-lg border border-gray-200 shadow-lg p-2 grid grid-cols-4 gap-2">
+                                {backgroundOptions.map(opt => (
+                                    <button
+                                        key={opt.value}
+                                        onClick={() => { setPreviewBg(opt.value); setShowBgPicker(false); }}
+                                        className={`w-9 h-9 rounded-full ${opt.color} ${previewBg === opt.value ? 'ring-2 ring-primary-500 ring-offset-1' : ''}`}
+                                        title={opt.label}
+                                        style={opt.value === 'checker' ? { backgroundImage: `url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAAXNSR0IArs4c6QAAAB5JREFUKFNjYCACAAAHOgD///+F8f///4X/09JvAgBwYw/57yQ+jAAAAABJRU5ErkJggg==')` } : {}}
+                                    />
+                                ))}
+                            </div>
+                        </>
+                    )}
+               </div>
+               {/* PC: 従来どおり横一列 */}
+               <div className="hidden sm:flex items-center gap-1 bg-white p-1 rounded-lg border border-gray-200">
                     <span className="hidden md:inline text-xs text-gray-400 font-bold px-1">背景色</span>
                     {backgroundOptions.map(opt => (
                         <button
@@ -1180,7 +1267,7 @@ export const StampEditorModal: React.FC<Props> = ({
                         />
                     ))}
                 </div>
-              <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition"><X size={20} /></button>
+              <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition shrink-0"><X size={20} /></button>
           </div>
         </div>
 
@@ -1372,7 +1459,7 @@ export const StampEditorModal: React.FC<Props> = ({
                             if (toleranceTimeoutRef.current) { clearTimeout(toleranceTimeoutRef.current); }
                             toleranceTimeoutRef.current = window.setTimeout(async () => {
                                 if (stamp.originalDataUrl) {
-                                    try { const newDataUrl = await reprocessStampWithTolerance(stamp.originalDataUrl, val); setWorkingDataUrl(newDataUrl); } 
+                                    try { const newDataUrl = await reprocessStampWithTolerance(stamp.originalDataUrl, val, localFillHoles); setWorkingDataUrl(newDataUrl); }
                                     catch (err) { console.error("Failed to reprocess", err); }
                                 }
                             }, 300);
@@ -1465,21 +1552,20 @@ export const StampEditorModal: React.FC<Props> = ({
 
         </div>
 
-        <div className="px-3 py-2 border-t bg-gray-50 rounded-b-xl shrink-0 flex flex-wrap items-center justify-center gap-2">
+        <div className="px-3 py-2 border-t bg-gray-50 sm:rounded-b-xl shrink-0 flex flex-wrap items-center justify-center gap-2">
              <div className="flex flex-wrap gap-1 items-center justify-center">
                  <ModeSelector
                     mode={mode} onModeChange={setMode} hasOriginalImage={!!originalImage}
                     onAddText={handleAddText} onAddImageLayer={handleAddImageLayer}
-                    onReset={() => {
-                        addToHistory({}); setScale(initialScale ?? stamp.scale); setRotation(initialRotation ?? stamp.rotation ?? 0); setOffset(initialOffset ?? {x:0, y:0});
-                        setFlipH(stamp.flipH ?? false); setFlipV(stamp.flipV ?? false); setTolerance(stamp.currentTolerance || 50); setWorkingDataUrl(stamp.dataUrl); 
-                        setTextObjects(initialTextObjects ?? stamp.textObjects ?? []); setImageLayers(initialImageLayers ?? stamp.imageLayers ?? []); setDrawingStrokes(initialDrawingStrokes ?? stamp.drawingStrokes ?? []);
-                        setMainImageLayerOrder(stamp.mainImageLayerOrder ?? 100);
-                    }}
+                    onReset={handleReset}
                     onOpenMaterialLibrary={() => setShowMaterialLibrary(true)} materialsCount={materials.length}
                  />
              </div>
              <div className="flex items-center gap-2 shrink-0">
+                {/* スマホではリセットが1段占有してしまうため、キャンセルの左に移動 */}
+                <button onClick={handleReset} className="sm:hidden flex items-center gap-1 text-xs text-gray-600 px-2 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition" title="リセット">
+                    <RotateCcw size={14} /> リセット
+                </button>
                 <button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-200 rounded-lg transition">キャンセル</button>
                 <button onClick={handleSave} className="px-4 py-1.5 text-sm bg-primary-600 text-white font-bold rounded-lg shadow hover:bg-primary-700 transition flex items-center gap-1">
                     <Check size={16} /> 完了
