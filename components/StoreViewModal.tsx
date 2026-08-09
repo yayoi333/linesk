@@ -254,11 +254,11 @@ export const StoreViewModal: React.FC<Props> = ({
             <button
               onClick={() => setDevice('mobile')}
               className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border transition ${isMobile ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-100'}`}
-            ><Smartphone size={14} />スマホ</button>
+            ><Smartphone size={14} />ショップ</button>
             <button
               onClick={() => setDevice('pc')}
               className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border transition ${!isMobile ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-100'}`}
-            ><Monitor size={14} />パソコン</button>
+            ><Monitor size={14} />LINEストア</button>
           </div>
           {hasEnglish && (
             <div className="flex items-center gap-1 ml-1">
@@ -330,7 +330,8 @@ export const StoreViewModal: React.FC<Props> = ({
             <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
               <div className="flex flex-col sm:flex-row gap-6">
                 <div className="shrink-0 mx-auto sm:mx-0">
-                  <div className="w-[240px] h-[240px] flex items-center justify-center">
+                  {/* sm未満(横幅が狭く縦積みになる)ときは「ショップ」と同じ170pxに縮小 */}
+                  <div className="w-[170px] h-[170px] sm:w-[240px] sm:h-[240px] flex items-center justify-center">
                     {mainImageUrl ? (
                       <StoreSticker imageUrl={mainImageUrl} config={mainConfig ?? stampToConfig(stamps[0])} width={MAIN_WIDTH} height={MAIN_HEIGHT} />
                     ) : (
