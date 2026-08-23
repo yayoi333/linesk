@@ -2,9 +2,9 @@
 // X/Threads: @yayoi_threee
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Download, Loader2, Image as ImageIcon, Grid, Languages, Settings, ExternalLink, Plus, X as XIcon, Save, GripVertical, Smartphone, Copy, Check, Wand2, Crop, Sliders, Move, ChevronDown, ChevronUp, Info, CheckCircle2, RotateCw, Layers, Minus, Plus as PlusIcon, Trash2, Type, Lock } from 'lucide-react';
+import { Upload, Download, Loader2, Image as ImageIcon, Grid, Languages, Settings, ExternalLink, Plus, X as XIcon, Save, GripVertical, Smartphone, Copy, Check, Wand2, Crop, Sliders, Move, ChevronDown, ChevronUp, Info, CheckCircle2, RotateCw, Layers, Minus, Plus as PlusIcon, Trash2, Type, Lock, Eraser } from 'lucide-react';
 import { AppStep, Stamp, MetaData, ExportConfig, SourceImage, TARGET_WIDTH, TARGET_HEIGHT, MAIN_WIDTH, MAIN_HEIGHT, TAB_WIDTH, TAB_HEIGHT, TextObject, ImageLayerObject, DrawingStroke } from './types';
-import { processUploadedImage, reprocessStampWithTolerance, computeFitScale } from './lib/imageProcessing';
+import { processUploadedImage, reprocessStampWithTolerance, computeFitScale, isFileAlreadyTransparent, TransparencyMode } from './lib/imageProcessing';
 import { translateMeta } from './lib/gemini';
 import { createAndDownloadZip, createFinalImageBlob, renderAllLayers, loadProjectFromZip } from './lib/zipService';
 import { saveProject, loadProject, deleteProject, restoreSourceImages, saveApiKey, loadApiKey, removeApiKey, clearMaterials } from './lib/storage';
@@ -269,6 +269,10 @@ export default function App() {
   const [fillHoles, setFillHoles] = useState(true);
   // テスト機能: 小さい切り出し画像を余白10pxを残して枠いっぱいに拡大するか
   const [autoFit, setAutoFit] = useState(false);
+  // 背景透過の扱い。auto=透過済みなら自動でスキップ / force=常にしない / off=常にする
+  const [transparencyMode, setTransparencyMode] = useState<TransparencyMode>('auto');
+  // 背景が透過済みと判定された元画像のID
+  const [transparentSourceIds, setTransparentSourceIds] = useState<Set<string>>(new Set());
 
   // New Image Processing State
   const [showSourceSelectModal, setShowSourceSelectModal] = useState(false);
@@ -699,7 +703,7 @@ export default function App() {
           const currentStamps = stampsRef.current;
           if (currentStamps.length === 0) return;
           const fillHolesChanged = lastFillHolesRef.current !== fillHoles;
-          const needsUpdate = fillHolesChanged || currentStamps.some(s => s.originalDataUrl && s.currentTolerance !== globalTolerance);
+          const needsUpdate = fillHolesChanged || currentStamps.some(s => !s.skipBgRemoval && s.originalDataUrl && s.currentTolerance !== globalTolerance);
           if (!needsUpdate) return;
           try {
               const updates = new Map<string, Stamp>();
@@ -707,6 +711,8 @@ export default function App() {
                   // 個別編集済みのスタンプは、一括透過を動かしても作り直さない
                   // (消しゴム・追加透過などの編集内容が消えてしまうため)
                   if (stamp.isEdited) return;
+                  // 背景透過済みの画像から切り出したスタンプは、一括透過の対象外
+                  if (stamp.skipBgRemoval) return;
                   // 個別に上書きされているスタンプは全体設定の変更で戻さない
                   const effectiveFillHoles = stamp.fillHolesOverride ?? fillHoles;
                   const affectedByGlobalChange = fillHolesChanged && stamp.fillHolesOverride === undefined;
@@ -752,7 +758,7 @@ export default function App() {
           try {
               let newAutoStamps: Stamp[] = [];
               for (const src of sourceImages) {
-                  const result = await processUploadedImage(src.file, src.id, globalTolerance, gapTolerance, fillHoles, autoFit);
+                  const result = await processUploadedImage(src.file, src.id, globalTolerance, gapTolerance, fillHoles, autoFit, transparencyMode);
                   newAutoStamps.push(...result.stamps);
               }
               const manualStamps = stampsRef.current.filter(s => s.id.startsWith('stamp-manual-'));
@@ -784,7 +790,7 @@ export default function App() {
           }
       }, 500); 
       return () => clearTimeout(timer);
-  }, [gapTolerance]);
+  }, [gapTolerance, transparencyMode]);
 
   const getImageDims = (file: File): Promise<{w:number, h:number}> => {
       return new Promise((resolve) => {
@@ -816,8 +822,12 @@ export default function App() {
     for (const file of filesToAdd) {
         const url = URL.createObjectURL(file);
         const {w, h} = await getImageDims(file);
+        const id = Math.random().toString(36).substring(7);
+        if (await isFileAlreadyTransparent(file)) {
+            setTransparentSourceIds(prev => new Set(prev).add(id));
+        }
         newSources.push({
-            id: Math.random().toString(36).substring(7),
+            id,
             url,
             file,
             width: w,
@@ -826,6 +836,15 @@ export default function App() {
     }
     setSourceImages(prev => [...prev, ...newSources]);
   };
+
+  // 背景透過をスキップしたスタンプがあるか / 全部そうか
+  const skippedBgStampCount = stamps.filter(s => s.skipBgRemoval).length;
+  const allStampsSkipBg = stamps.length > 0 && skippedBgStampCount === stamps.length;
+  const isGlobalToleranceDisabled = isGlobalToleranceLocked || allStampsSkipBg;
+
+  // 元画像が「背景透過済み扱い」かどうか。手動スイッチ(transparencyMode)を優先する。
+  const isSourceTransparent = (sourceId: string) =>
+      transparencyMode === 'force' || (transparencyMode === 'auto' && transparentSourceIds.has(sourceId));
 
   const removeSourceImage = (id: string) => {
       setSourceImages(prev => {
@@ -843,7 +862,7 @@ export default function App() {
           await deleteProject();
           let allStamps: Stamp[] = [];
           for (const source of sourceImages) {
-             const result = await processUploadedImage(source.file, source.id, globalTolerance, gapTolerance, fillHoles, autoFit);
+             const result = await processUploadedImage(source.file, source.id, globalTolerance, gapTolerance, fillHoles, autoFit, transparencyMode);
              allStamps = [...allStamps, ...result.stamps];
           }
           setStamps(allStamps);
@@ -870,6 +889,9 @@ export default function App() {
           width: w,
           height: h
       };
+      if (await isFileAlreadyTransparent(file)) {
+          setTransparentSourceIds(prev => new Set(prev).add(newSource.id));
+      }
       setSourceImages(prev => [...prev, newSource]);
       return newSource.id; 
   };
@@ -904,6 +926,9 @@ export default function App() {
           width: w,
           height: h
       };
+      if (await isFileAlreadyTransparent(file)) {
+          setTransparentSourceIds(prev => new Set(prev).add(newSource.id));
+      }
       
       setSourceImages(prev => [...prev, newSource]);
       if (hasGrid) setHasGridLines(true);
@@ -978,7 +1003,7 @@ export default function App() {
       setIsProcessing(true); 
       try {
         if (method === 'auto') {
-            const result = await processUploadedImage(selectedSourceForNewStamp.file, selectedSourceForNewStamp.id, globalTolerance, gapTolerance, fillHoles, autoFit);
+            const result = await processUploadedImage(selectedSourceForNewStamp.file, selectedSourceForNewStamp.id, globalTolerance, gapTolerance, fillHoles, autoFit, transparencyMode);
             const timestamp = Date.now();
             const newStamps = result.stamps.map((s, i) => ({
                 ...s,
@@ -1186,7 +1211,11 @@ export default function App() {
     setIsManualCropping(true);
   };
 
-  const handleManualCropConfirm = (newStamp: Stamp) => {
+  const handleManualCropConfirm = (rawStamp: Stamp) => {
+    // 手動切り出しでも、元画像が背景透過済みなら透過スライダーの対象外にする
+    const newStamp: Stamp = isSourceTransparent(rawStamp.sourceImageId)
+        ? { ...rawStamp, skipBgRemoval: true }
+        : rawStamp;
     if (targetReplaceId) {
         const updatedStamp = { ...newStamp, id: targetReplaceId };
         setStamps(prev => prev.map(s => s.id === targetReplaceId ? updatedStamp : s));
@@ -1327,8 +1356,29 @@ export default function App() {
                     <div className="bg-primary-500 p-2 rounded-lg text-white"><Grid size={24} /></div>
                     <h1 className="text-xl font-bold text-gray-800">スタンプ切り出しくん</h1>
                     <button
-                      onClick={() => setFillHoles(!fillHoles)}
+                      onClick={() => setTransparencyMode(prev => prev === 'auto' ? 'off' : prev === 'off' ? 'force' : 'auto')}
                       className={`ml-auto flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full border transition ${
+                        transparencyMode === 'auto'
+                          ? 'bg-primary-600 border-primary-600 text-white hover:bg-primary-700'
+                          : transparencyMode === 'off'
+                            ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                            : 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200'
+                      }`}
+                      title={
+                        transparencyMode === 'auto'
+                          ? '背景透過：自動（背景が透過済みの画像は、透過せず切り分けだけします）押すたびに 自動→する→しない と切り替わります'
+                          : transparencyMode === 'off'
+                            ? '背景透過：する（すべての画像に背景透過をします）押すたびに 自動→する→しない と切り替わります'
+                            : '背景透過：しない（背景透過をせず、切り分けだけします）押すたびに 自動→する→しない と切り替わります'
+                      }
+                    >
+                      <Eraser size={14} />
+                      <span className="hidden sm:inline">背景透過</span>
+                      <span>{transparencyMode === 'auto' ? '自動' : transparencyMode === 'off' ? 'する' : 'しない'}</span>
+                    </button>
+                    <button
+                      onClick={() => setFillHoles(!fillHoles)}
+                      className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full border transition ${
                         fillHoles
                           ? 'bg-primary-600 border-primary-600 text-white hover:bg-primary-700'
                           : 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200'
@@ -1414,11 +1464,11 @@ export default function App() {
                               <span className="hidden sm:inline">一括透過</span>
                             </button>
                             <div className={`flex items-center gap-1 rounded-lg p-1 border transition-all ${
-                              isGlobalToleranceLocked ? 'bg-gray-100 border-gray-100 opacity-60' : 'bg-gray-50 border-gray-200'
+                              isGlobalToleranceDisabled ? 'bg-gray-100 border-gray-100 opacity-60' : 'bg-gray-50 border-gray-200'
                             }`}>
                                 <button
                                   onClick={() => setGlobalTolerance(Math.max(1, globalTolerance - 1))}
-                                  disabled={isGlobalToleranceLocked}
+                                  disabled={isGlobalToleranceDisabled}
                                   className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   <Minus size={12} />
@@ -1429,12 +1479,12 @@ export default function App() {
                                   max="100"
                                   value={globalTolerance}
                                   onChange={handleGlobalToleranceChange}
-                                  disabled={isGlobalToleranceLocked}
+                                  disabled={isGlobalToleranceDisabled}
                                   className="w-16 accent-primary-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
                                 />
                                 <button
                                   onClick={() => setGlobalTolerance(Math.min(100, globalTolerance + 1))}
-                                  disabled={isGlobalToleranceLocked}
+                                  disabled={isGlobalToleranceDisabled}
                                   className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   <PlusIcon size={12} />
@@ -1591,7 +1641,7 @@ export default function App() {
                         <div className="text-xs text-gray-500 mt-2 bg-blue-50 p-2 rounded border border-blue-100">
                              <div className="flex items-start gap-1">
                                 <Info size={14} className="text-blue-500 mt-0.5 shrink-0" />
-                                <div><span className="font-bold text-blue-600">申請可能個数:</span> 8, 16, 24, 32, 40個<br/>{isExactCount ? <span className="text-green-600 font-bold">現在 {validStampsCount}個 (申請可能です！)</span> : <>{isOverLimit ? <span className="text-orange-600 font-bold">40個を超えています。</span> : <span className="text-orange-600">次は <span className="font-bold">{nextTarget}個</span> を目指しましょう</span>}</>}<br/><span className="opacity-70 text-[10px]">※不足していると申請できません。</span></div>
+                                <div><span className="font-bold text-blue-600">申請可能個数:</span> 8, 16, 24, 32, 40個<br/>{isExactCount ? <span className="text-green-600 font-bold">現在 {validStampsCount}個 (申請可能です！)</span> : <>{isOverLimit ? <span className="text-orange-600 font-bold">40個を超えています。</span> : <span className="text-orange-600">次は <span className="font-bold">{nextTarget}個</span> を目指しましょう</span>}</>}<br/><span className="opacity-70 text-[10px]">※不足していると申請できません。</span>{skippedBgStampCount > 0 && (<><br/><span className="text-primary-600 font-bold text-[10px]">背景透過済みの{skippedBgStampCount}枚は、透過せず切り分けだけしました</span></>)}</div>
                              </div>
                         </div>
                     </div>
